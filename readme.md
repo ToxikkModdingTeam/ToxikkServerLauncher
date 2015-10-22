@@ -24,6 +24,8 @@ You can also specify the configuration IDs on the command line to start the serv
 What it does
 ------------
 The launcher copies SteamApps\\Common\\TOXIKK\\UDKGame\\Config\\Default*.ini to a DedicatedServer... subdirectory, overwriting any existing files.
+It also copies all UDK*.ini files which don't have a corresponding Default*.ini. (Such files are needed for custom mutators to solve a race condition 
+between accessing the UDK* file and generating it from a Default* file.)
 It then applies the INI changes defined in your ServerConfig.ini [DedicatedServer...] sections to the files in the subdirectory.
 All settings in ServerConfig.ini which don't refer to an INI file are used to build the command line options for toxikk.exe.
 

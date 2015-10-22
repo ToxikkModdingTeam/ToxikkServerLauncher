@@ -198,17 +198,31 @@ namespace ToxikkServerLauncher
     #region GenerateConfig()
     private string GenerateConfig(IniFile.Section section)
     {
-      var configDir = configFolder + section.Name;
-      Directory.CreateDirectory(configDir);
+      var configSubDir = configFolder + section.Name;
+      Directory.CreateDirectory(configSubDir);
+
+      // copy all Default*.ini files
       foreach (var file in Directory.GetFiles(configFolder, "Default*.ini"))
-        File.Copy(file, configDir + "\\" + Path.GetFileName(file), true);
+        File.Copy(file, configSubDir + "\\" + Path.GetFileName(file), true);
+
+      // copy UDK*.ini where there is no matching Default*.ini
+      // (sometimes UDK* files are accessed before they have been generated from Default* files)
+      foreach (var file in Directory.GetFiles(configFolder, "UDK*.ini"))
+      {
+        var fileName = Path.GetFileName(file) ?? "";
+        var defaultFile = Path.GetDirectoryName(file) + "\\Default" + fileName.Substring(3);
+        if (!File.Exists(defaultFile))
+          File.Copy(file, configSubDir + "\\" + fileName, true);
+      }
 
       var destIniCache = new Dictionary<string, IniFile>();
-
       var options = new StringBuilder();
+      options.Append("?dedicated=true");
 
+      // recursive processing of a section and it's @Import sections
       ProcessConfigSection(section.Name, section, destIniCache, options);
 
+      // save the ini files
       foreach (var destIni in destIniCache.Values)
         destIni.Save();
 
@@ -252,8 +266,8 @@ namespace ToxikkServerLauncher
               File.Copy(configFolder + names[0], configFolder + sectionName + "\\" + names[1], true);
           }
         }
-        else
-          options.Append("?").Append(mappedKey).Append("=").Append(value.Replace(' ', '_')); // WebUtility.UrlEncode(value)
+        else //if (value.Trim() != "")
+          options.Append("?").Append(mappedKey).Append("=").Append(value.Replace(' ', '_'));
       }
     }
 
@@ -262,7 +276,9 @@ namespace ToxikkServerLauncher
     #region LaunchServer()
     private void LaunchServer(string sectionName, string options)
     {
-      System.Diagnostics.Process.Start(toxikkExe, "server " + options + "?dedicated=true?steamsockets -nohomedir -unattended -CONFIGSUBDIR=" + sectionName);
+      var args = "server " + options + "?steamsockets -CONFIGSUBDIR=" + sectionName + " -nohomedir -unattended";
+      //Console.WriteLine(toxikkExe + " " + args);
+      System.Diagnostics.Process.Start(toxikkExe, args);
     }
     #endregion
 

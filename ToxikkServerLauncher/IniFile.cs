@@ -11,8 +11,8 @@ namespace ToxikkServerLauncher
 
     public class Section
     {
-      private readonly Dictionary<string, string> data = new Dictionary<string, string>(StringComparer.CurrentCultureIgnoreCase);
-      
+      private readonly Dictionary<string, List<string>> data = new Dictionary<string, List<string>>(StringComparer.CurrentCultureIgnoreCase);
+
       public Section(string name)
       {
         this.Name = name;
@@ -22,10 +22,23 @@ namespace ToxikkServerLauncher
       public string Name { get; private set; }
       #endregion
 
+      #region Add()
+      internal void Add(string key, string value)
+      {
+        List<string> list;
+        if (!data.TryGetValue(key, out list))
+        {
+          list = new List<string>();
+          data.Add(key, list);
+        }
+        list.Add(value);
+      }
+      #endregion
+
       #region Set()
       internal void Set(string key, string value)
       {
-        data[key] = value;
+        data[key] = new List<string> { value };
       }
       #endregion
 
@@ -38,94 +51,26 @@ namespace ToxikkServerLauncher
 
       public string GetString(string key)
       {
-        string value;
-        if (!data.TryGetValue(key, out value))
+        List<string> list;
+        if (!data.TryGetValue(key, out list))
           return null;
-        return value;
+        return list[0];
       }
 
       #endregion
 
-      #region GetInt()
+      #region GetAll()
 
-      public int GetInt(string key, int defaultValue = 0)
+      public List<string> GetAll(string key)
       {
-        string value;
-        if (!data.TryGetValue(key, out value))
-          return defaultValue;
-        return this.ParseNumber(value);
+        List<string> list;
+        if (!data.TryGetValue(key, out list))
+          return new List<string>();
+        return list;
       }
 
       #endregion
 
-      #region GetBytes()
-      public byte[] GetBytes(string key)
-      {
-        string value;
-        if (!data.TryGetValue(key, out value))
-          return null;
-        if (string.IsNullOrEmpty(value))
-          return new byte[0];
-
-        string[] parts = value.Split(',');
-        byte[] bytes = new byte[parts.Length];
-        int i = 0;
-        foreach (var part in parts)
-          bytes[i++] = (byte)this.ParseNumber(part);
-        return bytes;
-      }
-
-      #endregion
-
-      #region GetBool()
-      public bool GetBool(string setting, bool defaultValue = false)
-      {
-        var val = this.GetString(setting);
-        if (val == null) return defaultValue;
-        val = val.ToLower();
-        return val == "1" || val == "true" || val == "yes" || val == "on";
-      }
-      #endregion
-
-      #region GetDecimal()
-      public decimal GetDecimal(string key)
-      {
-        string value = this.GetString(key);
-        if (value == null)
-          return 0;
-        decimal val;
-        decimal.TryParse(value, out val);
-        return val;
-      }
-      #endregion
-
-      #region GetIntList()
-      public int[] GetIntList(string key)
-      {
-        string value = this.GetString(key);
-        if (string.IsNullOrEmpty(value))
-          return new int[0];
-        string[] numbers = value.Split(',');
-        int[] ret = new int[numbers.Length];
-        for (int i = 0; i < numbers.Length; i++)
-          ret[i] = this.ParseNumber(numbers[i]);
-        return ret;
-      }
-      #endregion
-
-      #region ParseNumber()
-      private int ParseNumber(string value)
-      {
-        if (value.ToLower().StartsWith("0x"))
-        {
-          try { return Convert.ToInt32(value, 16); }
-          catch { return 0; }
-        }
-        int intValue;
-        int.TryParse(value, out intValue);
-        return intValue;
-      }
-      #endregion
     }
     #endregion
 
@@ -142,6 +87,7 @@ namespace ToxikkServerLauncher
     }
 
     public IEnumerable<Section> Sections => this.sectionList;
+    public string FileName => this.fileName;
 
     public Section GetSection(string sectionName, bool create = false)
     {
@@ -200,7 +146,7 @@ namespace ToxikkServerLauncher
           else
           {
             val += line.Substring(idx + 1).Trim();
-            currentSection.Set(key, val);
+            currentSection.Add(key, val);
             val = null;
           }
         }
@@ -216,7 +162,10 @@ namespace ToxikkServerLauncher
       {
         sb.Append("[").Append(section.Name).AppendLine("]");
         foreach (var key in section.Keys)
-          sb.AppendLine($"{key}={section.GetString(key)}");
+        {
+          foreach (var value in section.GetAll(key))
+            sb.AppendLine($"{key}={value}");
+        }
         sb.AppendLine();
       }
       File.WriteAllText(this.fileName, sb.ToString());
