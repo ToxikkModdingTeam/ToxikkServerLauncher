@@ -263,7 +263,10 @@ namespace ToxikkServerLauncher
           {
             var names=fileInfo.Split('=',':','\\','/');
             if (names.Length == 2 && names[0] != "" && names[1] != "")
-              File.Copy(configFolder + names[0], configFolder + sectionName + "\\" + names[1], true);
+            {
+              var folder = File.Exists(launcherFolder + names[0]) ? launcherFolder : configFolder;
+              File.Copy(folder + names[0], configFolder + sectionName + "\\" + names[1], true);
+            }
           }
         }
         else //if (value.Trim() != "")

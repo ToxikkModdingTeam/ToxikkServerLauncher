@@ -48,7 +48,6 @@ namespace ToxikkServerLauncher
       #endregion
 
       #region GetString()
-
       public string GetString(string key)
       {
         List<string> list;
@@ -56,8 +55,49 @@ namespace ToxikkServerLauncher
           return null;
         return list[0];
       }
-
       #endregion
+
+      #region GetBool()
+      public bool GetBool(string key, bool defaultValue = false)
+      {
+        List<string> list;
+        if (!data.TryGetValue(key, out list) || list.Count == 0)
+          return defaultValue;
+        var val = list[0].ToLower();
+        if (val == "")
+          return defaultValue;
+        return val != "0" && val != "false";
+      }
+      #endregion
+
+      #region GetInt()
+      public int GetInt(string key, int defaultValue = 0)
+      {
+        List<string> list;
+        if (!data.TryGetValue(key, out list) || list.Count == 0)
+          return defaultValue;
+        var val = list[0].ToLower();
+        if (val == "")
+          return defaultValue;
+        int intVal;
+        return int.TryParse(val, out intVal) ? intVal : defaultValue;
+      }
+      #endregion
+
+      #region GetDecimal()
+      public decimal GetDecimal(string key, decimal defaultValue = 0)
+      {
+        List<string> list;
+        if (!data.TryGetValue(key, out list) || list.Count == 0)
+          return defaultValue;
+        var val = list[0].ToLower();
+        if (val == "")
+          return defaultValue;
+        decimal intVal;
+        return decimal.TryParse(val, out intVal) ? intVal : defaultValue;
+      }
+      #endregion
+
 
       #region GetAll()
 
@@ -77,7 +117,7 @@ namespace ToxikkServerLauncher
     private readonly Dictionary<string, Section> sectionDict;
     private readonly List<Section> sectionList;
     private readonly string fileName;
-    
+
     public IniFile(string fileName)
     {
       this.sectionDict = new Dictionary<string, Section>();
@@ -140,7 +180,7 @@ namespace ToxikkServerLauncher
             key = trimmedLine.Substring(0, idx).Trim();
             val = "";
           }
-                      
+
           if (line.EndsWith("\\"))
             val += line.Substring(idx + 1, line.Length - idx - 1 - 1).Trim() + "\n";
           else
