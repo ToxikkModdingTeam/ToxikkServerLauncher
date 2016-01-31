@@ -295,7 +295,7 @@ namespace ToxikkServerLauncher
       string targetConfigFolder;
       if (this.dedicated)
       {
-        targetConfigFolder = configFolder + section.Name;
+        targetConfigFolder = Path.Combine(configFolder, section.Name);
         Directory.CreateDirectory(targetConfigFolder);
 
         // copy all Default*.ini files
@@ -458,6 +458,10 @@ namespace ToxikkServerLauncher
       var toxikkDir = Path.Combine(this.toxikkFolder, @"UDKGame\Workshop");
       try
       {
+        // delete existing files so only content of the workshop items listed in the .ini survive
+        Directory.Delete(toxikkDir, true);
+        Directory.CreateDirectory(toxikkDir);
+
         foreach (var itemPath in Directory.GetDirectories(workshopFolder))
           CopyFolder(itemPath, toxikkDir);
         return true;
@@ -485,7 +489,7 @@ namespace ToxikkServerLauncher
           File.Copy(file, target, true);
 
         // copy files to HTTP redirect
-        if (httpFolder != null)
+        if (httpFolder != null && ".udk.upk.u".Contains(Path.GetExtension(file)))
         {
           target = Path.Combine(httpFolder, Path.GetFileName(file));
           if (File.GetLastWriteTimeUtc(file) != File.GetLastWriteTimeUtc(target) || new FileInfo(file).Length != new FileInfo(target).Length)
