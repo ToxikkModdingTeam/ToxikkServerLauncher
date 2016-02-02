@@ -22,6 +22,7 @@ namespace ToxikkServerLauncher
     private bool showCommandLine;
     private bool pause;
     private bool skipWorkshopUpdate;
+    private bool forceWorkshopUpdate;
 
     /// <summary>
     /// Maps logical server setting names to real setting names (either ini-file\section\section specifier or a command line option name) as found in the [SimpleNames] section
@@ -84,16 +85,23 @@ namespace ToxikkServerLauncher
               this.workshopFolder = val;
               break;
             case "listen":
+            case "l":
               this.dedicated = false;
               break;
             case "showcommand":
               this.showCommandLine = true;
               break;
             case "pause":
+            case "p":
               this.pause = true;
               break;
             case "skipupdate":
+            case "s":
               this.skipWorkshopUpdate = true;
+              break;
+            case "forceupdate":
+            case "f":
+              this.forceWorkshopUpdate = true;
               break;
           }
         }
@@ -433,6 +441,10 @@ namespace ToxikkServerLauncher
         Console.WriteLine("User/Password not configured in [SteamWorkshop], skipping workshop updates.");
         return;
       }
+
+      // delete the manifest file to make sure we really download
+      if (this.forceWorkshopUpdate)
+        File.Delete(Path.Combine(this.workshopFolder, @"..\..\appworkshop_324810.acf"));
 
       var sb = new StringBuilder();
       sb.Append("+login ").Append(user).Append(" ").Append(pass).Append(" +app_update 324810");
