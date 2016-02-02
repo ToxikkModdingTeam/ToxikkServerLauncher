@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace ToxikkServerLauncher
 {
@@ -360,9 +361,20 @@ namespace ToxikkServerLauncher
     #region ProcessConfigSection()
     private void ProcessConfigSection(string targetConfigFolder, IniFile.Section section, Dictionary<string, IniFile> destIniCache, SortedDictionary<string,string> options)
     {
+      var portRegex = new Regex(@"^@port,(\d+),(\d+)\w*$");
+      var serverNumRegx = new Regex(@".*?(\d+)$");
       foreach (var unmappedKey in section.Keys)
       {
         var value = section.GetString(unmappedKey);
+
+        // process @port,base,multiplier macro to auto-generate port numbers
+        var port = portRegex.Match(value);
+        var serv = serverNumRegx.Match(targetConfigFolder);
+        if (port.Success && serv.Success)
+        {
+          value = (int.Parse(port.Groups[1].Value) + int.Parse(port.Groups[2].Value)*(int.Parse(serv.Groups[1].Value) - 1)).ToString();
+        }
+
         string mappedKey;
         if (!keyMapping.TryGetValue(unmappedKey, out mappedKey))
           mappedKey = unmappedKey;

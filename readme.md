@@ -12,6 +12,9 @@ Main features:
 The @Import=<section-name> command allows you to re-use common configuration parts in multiple server configurations.  
 The @CopyFiles=\<from:to,...\> command allows you to copy+rename special configuration files for specific servers (e.g. DefaultMapList.ini with only BL/SA maps).
 
+For port number values a macro can be used to automatically generate the number from the X in DedicatedServerX:
+The value "@port,10000,2" is calculated as 10000 + (X-1) * 2. Your DedicatedServer1 will use port 10000, DedicatedServer2 will use 10002, ...
+
 Setup
 -----
 See FIRST STEPS inside ServerConfig.ini and edit the necessary settings. The file will be automatically renamed to MyServerConfig.
