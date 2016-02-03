@@ -291,15 +291,15 @@ namespace ToxikkServerLauncher
       }
 
       Console.WriteLine("Starting " + (section.GetString("ServerName") ?? sectionName));
-      string map, options;
-      if (GenerateConfig(section, out map, out options))
-        LaunchServer(map, options, sectionName);
+      string map, options, cmdArgs;
+      if (GenerateConfig(section, out map, out options, out cmdArgs))
+        LaunchServer(map, options, cmdArgs, sectionName);
     }
 
     #endregion
 
     #region GenerateConfig()
-    private bool GenerateConfig(IniFile.Section section, out string map, out string options)
+    private bool GenerateConfig(IniFile.Section section, out string map, out string options, out string cmdArgs)
     {
       string targetConfigFolder;
       if (this.dedicated)
@@ -335,7 +335,8 @@ namespace ToxikkServerLauncher
       var optionDict = new SortedDictionary<string,string>(StringComparer.InvariantCultureIgnoreCase);
 
       // recursive processing of a section and its @Import sections
-      ProcessConfigSection(targetConfigFolder, section, destIniCache, optionDict);
+      cmdArgs = "";
+      ProcessConfigSection(targetConfigFolder, section, destIniCache, optionDict, ref cmdArgs);
 
       // build URL with map and options
       if (!optionDict.TryGetValue("map", out map))
@@ -359,7 +360,7 @@ namespace ToxikkServerLauncher
     #endregion
 
     #region ProcessConfigSection()
-    private void ProcessConfigSection(string targetConfigFolder, IniFile.Section section, Dictionary<string, IniFile> destIniCache, SortedDictionary<string,string> options)
+    private void ProcessConfigSection(string targetConfigFolder, IniFile.Section section, Dictionary<string, IniFile> destIniCache, SortedDictionary<string,string> options, ref string cmdArgs)
     {
       var portRegex = new Regex(@"^@port,(\d+),(\d+)\w*$");
       var serverNumRegx = new Regex(@".*?(\d+)$");
@@ -396,7 +397,7 @@ namespace ToxikkServerLauncher
         else if (mappedKey.ToLower() == "@import")
         {
           // recursively process settings from another section
-          ProcessConfigSection(targetConfigFolder, ini.GetSection(value), destIniCache, options);
+          ProcessConfigSection(targetConfigFolder, ini.GetSection(value), destIniCache, options, ref cmdArgs);
         }
         else if (mappedKey.ToLower() == "@copyfiles")
         {
@@ -415,6 +416,13 @@ namespace ToxikkServerLauncher
                 Console.Error.WriteLine("WARNING: @copyfile source not found: " + names[0]);
             }
           }
+        }
+        else if (mappedKey.ToLower() == "@cmdline")
+        {
+          //if (cmdArgs.Length > 0)
+          //  cmdArgs += " ";
+          //cmdArgs += value;
+          cmdArgs = value;
         }
         else
         {
@@ -529,7 +537,7 @@ namespace ToxikkServerLauncher
     #endregion
 
     #region LaunchServer()
-    private void LaunchServer(string map, string options, string sectionName)
+    private void LaunchServer(string map, string options, string cmdArgs, string sectionName)
     {
       string args = "";
       if (dedicated)
@@ -550,6 +558,9 @@ namespace ToxikkServerLauncher
         args += " -configsubdir=" + sectionName + " -nohomedir -unattended";
       else
         args += " -log -nostartupmovies";
+
+      if (cmdArgs.Length > 0)
+        args += " " + cmdArgs;
 
       if (this.showCommandLine)
         Console.WriteLine(toxikkExe + " " + args);
