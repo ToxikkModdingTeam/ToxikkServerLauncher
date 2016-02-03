@@ -19,8 +19,8 @@ The value "@port,10000,2" is calculated as 10000 + (X-1) * 2. Your DedicatedServ
 Setup
 -----
 See FIRST STEPS inside ServerConfig.ini and edit the necessary settings. The file will be automatically renamed to MyServerConfig.
-The first time you start the .exe it will import your old server settings from TOXIKKServerLauncher\\ServerConfigList.ini into ServerConfig.ini. 
-(You can force a re-import by removing all [DedicatedServer...] sections from ServerConfig.ini.)
+The first time you start the .exe it will import your old server settings from TOXIKKServerLauncher\\ServerConfigList.ini into MyServerConfig.ini. 
+(You can force a re-import by removing all [DedicatedServer...] sections from MyServerConfig.ini.)
 
 Usage
 -----
@@ -34,8 +34,9 @@ What it does
 ------------
 The launcher copies SteamApps\\Common\\TOXIKK\\UDKGame\\Config\\Default*.ini to a DedicatedServer... subdirectory, overwriting any existing files.
 It also copies all UDK*.ini files which don't have a corresponding Default*.ini. (Such files are needed for custom mutators to solve a race condition 
-between accessing the UDK* file and generating it from a Default* file.)
-Then it applies the INI changes defined in your ServerConfig.ini [DedicatedServer...] sections to the files in the subdirectory.
+between accessing the UDK* file and generating it from a Default* file.)   
+It then copies all UDK*.ini files from the server launcher's directory to the DedicatedServer... config directory.
+After that, it applies the INI changes defined in your MyServerConfig.ini \[DedicatedServer...\] sections to the files in the subdirectory.
 All settings in ServerConfig.ini which don't refer to an INI file are used as the command line options for toxikk.exe.
 
 ServerConfig.ini

@@ -403,43 +403,8 @@ namespace ToxikkServerLauncher
     #region GenerateConfig()
     private bool GenerateConfig(IniFile.Section section, out string map, out string options, out string cmdArgs)
     {
-      string targetConfigFolder;
-      if (this.dedicated)
-      {
-        targetConfigFolder = Path.Combine(configFolder, section.Name);
-        Directory.CreateDirectory(targetConfigFolder);
-
-        // copy all Default*.ini files
-        foreach (var file in Directory.GetFiles(configFolder, "Default*.ini"))
-          File.Copy(file, Path.Combine(targetConfigFolder, Path.GetFileName(file)??""), true);
-
-        // copy UDK*.ini where there is no matching Default*.ini
-        // (sometimes UDK* files are accessed before they have been generated from Default* files)
-        foreach (var file in Directory.GetFiles(configFolder, "UDK*.ini"))
-        {
-          var fileName = Path.GetFileName(file) ?? "";
-          var defaultFile = Path.Combine(Path.GetDirectoryName(file)??"", "Default" + fileName.Substring(3));
-          if (!File.Exists(defaultFile))
-            File.Copy(file, Path.Combine(targetConfigFolder, fileName), true);
-        }
-      }
-      else
-        targetConfigFolder = this.configFolder.TrimEnd('\\', '/');
-
-      // copy all UDK*.ini files from the ServerLauncher folder
-      foreach (var file in Directory.GetFiles(launcherFolder, "UDK*.ini"))
-      {
-        var fileName = Path.GetFileName(file) ?? "";
-        File.Copy(file, Path.Combine(targetConfigFolder, fileName), true);
-      }
-
-      // copy all *.ini files from Workshop/Config folder (but don't overwrite existing files)
-      foreach (var file in Directory.GetFiles(Path.Combine(this.toxikkFolder, @"UDKGame\Workshop\Config"), "*.ini"))
-      {
-        var target = Path.Combine(targetConfigFolder, Path.GetFileName(file)??"");
-        if (!File.Exists(target))
-          File.Copy(file, target, false);
-      }
+      var targetConfigFolder = this.dedicated ? Path.Combine(configFolder, section.Name) : this.configFolder.TrimEnd('\\', '/');
+      CopyIniFilesToServerConfigFolder(targetConfigFolder);
 
       var destIniCache = new Dictionary<string, IniFile>();
       var optionDict = new SortedDictionary<string,string>(StringComparer.InvariantCultureIgnoreCase);
@@ -448,13 +413,14 @@ namespace ToxikkServerLauncher
       cmdArgs = "";
       ProcessConfigSection(targetConfigFolder, "", section, destIniCache, optionDict, ref cmdArgs);
 
-      // build URL with map and options
+      // build URL with map name and options
       if (!optionDict.TryGetValue("map", out map))
       {
         Console.Error.WriteLine("ERROR: No map specified");
         options = null;
         return false;
       }
+
       optionDict.Remove("map");
       var sbOptions = new StringBuilder();
       foreach (var entry in optionDict)
@@ -469,22 +435,53 @@ namespace ToxikkServerLauncher
     }
     #endregion
 
+    #region CopyIniFilesToServerConfigFolder()
+    private void CopyIniFilesToServerConfigFolder(string targetConfigFolder)
+    {
+      if (this.dedicated)
+      {
+        Directory.Delete(targetConfigFolder, true);
+        Directory.CreateDirectory(targetConfigFolder);
+
+        // copy all Default*.ini files
+        foreach (var file in Directory.GetFiles(configFolder, "Default*.ini"))
+          File.Copy(file, Path.Combine(targetConfigFolder, Path.GetFileName(file) ?? ""), true);
+
+        // copy UDK*.ini where there is no matching Default*.ini
+        // (sometimes UDK* files are accessed before they have been generated from Default* files)
+        foreach (var file in Directory.GetFiles(configFolder, "UDK*.ini"))
+        {
+          var fileName = Path.GetFileName(file) ?? "";
+          var defaultFile = Path.Combine(Path.GetDirectoryName(file) ?? "", "Default" + fileName.Substring(3));
+          if (!File.Exists(defaultFile))
+            File.Copy(file, Path.Combine(targetConfigFolder, fileName), true);
+        }
+      }
+
+      // copy all UDK*.ini files from the ServerLauncher folder
+      foreach (var file in Directory.GetFiles(launcherFolder, "UDK*.ini"))
+      {
+        var fileName = Path.GetFileName(file) ?? "";
+        File.Copy(file, Path.Combine(targetConfigFolder, fileName), true);
+      }
+
+      // copy all *.ini files from Workshop/Config folder (but don't overwrite existing files)
+      foreach (var file in Directory.GetFiles(Path.Combine(this.toxikkFolder, @"UDKGame\Workshop\Config"), "*.ini"))
+      {
+        var target = Path.Combine(targetConfigFolder, Path.GetFileName(file) ?? "");
+        if (!File.Exists(target))
+          File.Copy(file, target, false);
+      }
+    }
+    #endregion
+
     #region ProcessConfigSection()
     private void ProcessConfigSection(string targetConfigFolder, string configSourceFolder, IniFile.Section section, Dictionary<string, IniFile> destIniCache, SortedDictionary<string,string> options, ref string cmdArgs)
     {
-      var portRegex = new Regex(@"^@port,(\d+),(\d+)\w*$");
-      var serverNumRegx = new Regex(@".*?(\d+)$");
       foreach (var unmappedKey in section.Keys)
       {
         var value = section.GetString(unmappedKey);
-
-        // process @port,base,multiplier macro to auto-generate port numbers
-        var port = portRegex.Match(value);
-        var serv = serverNumRegx.Match(targetConfigFolder);
-        if (port.Success && serv.Success)
-        {
-          value = (int.Parse(port.Groups[1].Value) + int.Parse(port.Groups[2].Value)*(int.Parse(serv.Groups[1].Value) - 1)).ToString();
-        }
+        value = ProcessValueMacros(targetConfigFolder, value);
 
         string mappedKey;
         if (!keyMapping.TryGetValue(unmappedKey, out mappedKey))
@@ -492,46 +489,19 @@ namespace ToxikkServerLauncher
 
         var configMapping = mappedKey.Split('\\');
         if (configMapping.Length == 3)
-        {
-          // process a "filename\section\key=value" entry
-          IniFile destIni;
-          string destIniPath = targetConfigFolder + "\\" + configMapping[0];
-          if (!destIniCache.TryGetValue(destIniPath, out destIni))
-          {
-            destIni = new IniFile(destIniPath);
-            destIniCache.Add(destIniPath, destIni);
-          }
-          var destSec = destIni.GetSection(configMapping[1], true);
-          destSec.Set(configMapping[2], value);
+        {          
+          ProcessIniSetting(targetConfigFolder, destIniCache, configMapping, value);
         }        
         else if (mappedKey.ToLower() == "@import")
         {
-          // recursively process settings from another section or file
           ProcessImport(targetConfigFolder, configSourceFolder, destIniCache, options, ref cmdArgs, value);
         }
         else if (mappedKey.ToLower() == "@copyfiles")
         {
-          // copy files specified as "source:dest,source:dest,...". 
-          // source files can be placed in the ServerLauncher folder or the template config folder
-          foreach (var fileInfo in value.Split(','))
-          {
-            var names = fileInfo.Split('=', ':', '\\', '/'); // various separator chars to prevent exploits with absolute paths
-            if (names.Length == 2 && names[0] != "" && names[1] != "")
-            {
-              var folder = File.Exists(Path.Combine(launcherFolder, configSourceFolder, names[0])) ? Path.Combine(launcherFolder, configSourceFolder) : configFolder;
-              var source = Path.Combine(folder, names[0]);
-              if (File.Exists(source))
-                File.Copy(source, Path.Combine(targetConfigFolder, names[1]), true);
-              else
-                Console.Error.WriteLine("WARNING: @copyfile source not found: " + names[0]);
-            }
-          }
+          ProcessCopyFile(targetConfigFolder, configSourceFolder, value);
         }
         else if (mappedKey.ToLower() == "@cmdline")
         {
-          //if (cmdArgs.Length > 0)
-          //  cmdArgs += " ";
-          //cmdArgs += value;
           cmdArgs = value;
         }
         else
@@ -541,7 +511,49 @@ namespace ToxikkServerLauncher
         }
       }
     }
+    #endregion
 
+    #region ProcessValueMacros()
+    private static string ProcessValueMacros(string targetConfigFolder, string value)
+    {
+      var portRegex = new Regex(@"^@port,(\d+),(\d+)\w*$");
+      var serverNumRegx = new Regex(@".*?(\d+)$");
+
+      // process @port,base,multiplier macro to auto-generate port numbers
+      var port = portRegex.Match(value);
+      var serv = serverNumRegx.Match(targetConfigFolder);
+      if (port.Success && serv.Success)
+      {
+        value = (int.Parse(port.Groups[1].Value) + int.Parse(port.Groups[2].Value)*(int.Parse(serv.Groups[1].Value) - 1)).ToString();
+      }
+      return value;
+    }
+
+    #endregion
+
+    #region ProcessIniSetting()
+    /// <summary>
+    /// process a "filename\section\key=value" entry
+    /// </summary>
+    private static void ProcessIniSetting(string targetConfigFolder, Dictionary<string, IniFile> destIniCache, string[] configMapping, string value)
+    {
+      IniFile destIni;
+      string destIniPath = targetConfigFolder + "\\" + configMapping[0];
+      if (!destIniCache.TryGetValue(destIniPath, out destIni))
+      {
+        destIni = new IniFile(destIniPath);
+        destIniCache.Add(destIniPath, destIni);
+      }
+      var destSec = destIni.GetSection(configMapping[1], true);
+      destSec.Set(configMapping[2], value);
+    }
+
+    #endregion
+
+    #region ProcessImport()
+    /// <summary>
+    /// recursively process settings from another section or file
+    /// </summary>
     private void ProcessImport(string targetConfigFolder, string configSourceFolder, Dictionary<string, IniFile> destIniCache, SortedDictionary<string, string> options, ref string cmdArgs, string value)
     {
       var importRegex = new Regex(@"^(?:(.*)[/\\])?(\S+\.ini)(\\\S+)?$", RegexOptions.IgnoreCase);
@@ -556,13 +568,39 @@ namespace ToxikkServerLauncher
           var subSection = match.Groups[3].Success ? match.Groups[3].Value.Substring(1) : Path.GetFileName(targetConfigFolder);
           var subIni = new IniFile(Path.Combine(subFolder, subFile));
           var sec = subIni.GetSection(subSection);
-          ProcessConfigSection(targetConfigFolder, subFolder, sec, destIniCache, options, ref cmdArgs);
+          if (sec == null)
+            Console.Error.WriteLine("WARNING: @import={0}: failed to locate {1}{2}{3}", value, subFolder, subFile, subSection);
+          else
+            ProcessConfigSection(targetConfigFolder, subFolder, sec, destIniCache, options, ref cmdArgs);
         }
         else
           ProcessConfigSection(targetConfigFolder, configSourceFolder, ini.GetSection(import), destIniCache, options, ref cmdArgs);
       }
     }
 
+    #endregion
+
+    #region ProcessCopyFile()
+    /// <summary>
+    /// copy files specified as "source:dest,source:dest,...". 
+    /// </summary>
+    private void ProcessCopyFile(string targetConfigFolder, string configSourceFolder, string value)
+    {
+      // source files can be placed in the ServerLauncher folder or the template config folder
+      foreach (var fileInfo in value.Split(','))
+      {
+        var names = fileInfo.Split('=', ':', '\\', '/'); // various separator chars to prevent exploits with absolute paths
+        if (names.Length == 2 && names[0] != "" && names[1] != "")
+        {
+          var folder = File.Exists(Path.Combine(launcherFolder, configSourceFolder, names[0])) ? Path.Combine(launcherFolder, configSourceFolder) : configFolder;
+          var source = Path.Combine(folder, names[0]);
+          if (File.Exists(source))
+            File.Copy(source, Path.Combine(targetConfigFolder, names[1]), true);
+          else
+            Console.Error.WriteLine("WARNING: @copyfile source not found: " + names[0]);
+        }
+      }
+    }
     #endregion
 
     #region LaunchServer()
