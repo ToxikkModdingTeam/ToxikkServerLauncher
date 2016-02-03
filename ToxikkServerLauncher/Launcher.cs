@@ -40,15 +40,7 @@ namespace ToxikkServerLauncher
       if (!InitFolders())
         return;
 
-      if (System.Diagnostics.Process.GetProcessesByName("toxikk").Length >= 1)
-        Console.WriteLine("TOXIKK.exe is already running, skipping workshop updates.");
-      else
-      {
-
-        DownloadWorkshopItems();
-        Console.WriteLine("Copying workshop item contents to TOXIKK and HTTP redirect folders...");
-        CopyWorkshopContent();
-      }
+      UpdateWorkshop();
 
       // prompt for server IDs when none were specified on the command line
       if (serverIds.Count == 0)
@@ -167,42 +159,6 @@ namespace ToxikkServerLauncher
     }
     #endregion
 
-    #region InitFolders()
-    private bool InitFolders()
-    {
-      toxikkFolder = toxikkFolder?.TrimEnd('\\', '/') ?? Path.Combine(launcherFolder,  "..");
-      toxikkExe = Path.Combine(toxikkFolder, @"Binaries\win32\TOXIKK.exe");
-      configFolder = Path.Combine(toxikkFolder, @"UDKGame\Config");
-
-      if (workshopFolder == null)
-      {
-        // ReSharper disable PossibleNullReferenceException
-        // ReSharper disable AssignNullToNotNullAttribute
-        workshopFolder = Path.GetDirectoryName(toxikkFolder);
-        while (Path.GetFileName(workshopFolder).ToLower() != "steamapps")
-          workshopFolder = Path.GetDirectoryName(workshopFolder);
-        workshopFolder = Path.Combine(workshopFolder, @"workshop\content\324810\");
-        // ReSharper restore PossibleNullReferenceException
-        // ReSharper restore AssignNullToNotNullAttribute
-      }
-
-      if (httpFolder != null && !Directory.Exists(httpFolder))
-        Directory.CreateDirectory(httpFolder);
-
-      if (!File.Exists(toxikkExe))
-      {
-        Console.Error.WriteLine("Could not find TOXIKK.exe.\n" +
-          @"Either copy this program to SteamApps\Common\TOXIKK\TOXIKKServers," +
-          "\nset ToxikkDir in ServerConfig.ini/[ServerLauncher]\n" +
-          "\nor use the /toxikkdir=... command line parameter");
-        return false;
-      }
-
-      return true;
-    }
-
-    #endregion
-
     #region ConvertLegacyServerConfigListIni()
     private void ConvertLegacyServerConfigListIni()
     {
@@ -264,14 +220,52 @@ namespace ToxikkServerLauncher
     }
     #endregion
 
-    #region ListConfigurations()
-    private void ListConfigurations()
+    #region InitFolders()
+    private bool InitFolders()
     {
-      Console.WriteLine("Available server configurations:");
-      foreach (var section in ini.Sections)
+      toxikkFolder = toxikkFolder?.TrimEnd('\\', '/') ?? Path.Combine(launcherFolder, "..");
+      toxikkExe = Path.Combine(toxikkFolder, @"Binaries\win32\TOXIKK.exe");
+      configFolder = Path.Combine(toxikkFolder, @"UDKGame\Config");
+
+      if (workshopFolder == null)
       {
-        if (section.Name.StartsWith(ServerSectionPrefix))
-          Console.WriteLine($"{section.Name.Substring(ServerSectionPrefix.Length),3}: {section.GetString("ServerName")}");
+        // ReSharper disable PossibleNullReferenceException
+        // ReSharper disable AssignNullToNotNullAttribute
+        workshopFolder = Path.GetDirectoryName(toxikkFolder);
+        while (Path.GetFileName(workshopFolder).ToLower() != "steamapps")
+          workshopFolder = Path.GetDirectoryName(workshopFolder);
+        workshopFolder = Path.Combine(workshopFolder, @"workshop\content\324810\");
+        // ReSharper restore PossibleNullReferenceException
+        // ReSharper restore AssignNullToNotNullAttribute
+      }
+
+      if (httpFolder != null && !Directory.Exists(httpFolder))
+        Directory.CreateDirectory(httpFolder);
+
+      if (!File.Exists(toxikkExe))
+      {
+        Console.Error.WriteLine("Could not find TOXIKK.exe.\n" +
+          @"Either copy this program to SteamApps\Common\TOXIKK\TOXIKKServers," +
+          "\nset ToxikkDir in ServerConfig.ini/[ServerLauncher]\n" +
+          "\nor use the /toxikkdir=... command line parameter");
+        return false;
+      }
+
+      return true;
+    }
+
+    #endregion
+
+    #region UpdateWorkshop()
+    private void UpdateWorkshop()
+    {
+      if (System.Diagnostics.Process.GetProcessesByName("toxikk").Length >= 1)
+        Console.WriteLine("TOXIKK.exe is already running, skipping workshop updates.");
+      else
+      {
+        DownloadWorkshopItems();
+        Console.WriteLine("Copying workshop item contents to TOXIKK and HTTP redirect folders...");
+        CopyWorkshopContent();
       }
     }
     #endregion
@@ -324,10 +318,10 @@ namespace ToxikkServerLauncher
     #endregion
 
     #region CopyWorkshopContent()
-    private bool CopyWorkshopContent()
+    private void CopyWorkshopContent()
     {
       if (!Directory.Exists(workshopFolder))
-        return true;
+        return;
 
       var toxikkDir = Path.Combine(this.toxikkFolder, @"UDKGame\Workshop");
       try
@@ -338,12 +332,10 @@ namespace ToxikkServerLauncher
 
         foreach (var itemPath in Directory.GetDirectories(workshopFolder))
           CopyFolder(itemPath, toxikkDir);
-        return true;
       }
       catch (IOException ex)
       {
         Console.Error.WriteLine("Failed to copy workshop item: " + ex.Message);
-        return false;
       }
     }
     #endregion
@@ -375,6 +367,18 @@ namespace ToxikkServerLauncher
       foreach (var dir in Directory.GetDirectories(sourceDir))
         CopyFolder(dir, Path.Combine(targetDir, Path.GetFileName(dir)));
       // ReSharper restore AssignNullToNotNullAttribute
+    }
+    #endregion
+
+    #region ListConfigurations()
+    private void ListConfigurations()
+    {
+      Console.WriteLine("Available server configurations:");
+      foreach (var section in ini.Sections)
+      {
+        if (section.Name.StartsWith(ServerSectionPrefix))
+          Console.WriteLine($"{section.Name.Substring(ServerSectionPrefix.Length),3}: {section.GetString("ServerName")}");
+      }
     }
     #endregion
 
