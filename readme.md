@@ -9,7 +9,8 @@ Main features:
 - builds the command line with server specific options needed to launch TOXIKK.exe as a dedicated server.
 - allows you to use friendly settings names instead of the real INI or command line option names.
 
-The @Import=<section-name> command allows you to re-use common configuration parts in multiple server configurations.  
+The @Import=\<source\> command allows you to re-use common configuration parts in multiple server configurations. It can import other sections from the current file,
+or sections from other files, even in subdirectories. When using subdirectories, it also sets the source directory for files used with @CopyFiles.   
 The @CopyFiles=\<from:to,...\> command allows you to copy+rename special configuration files for specific servers (e.g. DefaultMapList.ini with only BL/SA maps).
 
 For port number values a macro can be used to automatically generate the number from the X in DedicatedServerX:

@@ -63,6 +63,12 @@
     <None Include="MapList-CC.ini">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Include="Server99\Config.ini">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Include="Server99\MapList.ini">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Include="ServerConfig.ini">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
