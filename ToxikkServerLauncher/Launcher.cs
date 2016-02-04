@@ -305,7 +305,7 @@ namespace ToxikkServerLauncher
       var sb = new StringBuilder();
       sb.Append("+login ").Append(user).Append(" ").Append(pass).Append(" +app_update 324810");
       foreach (var item in items)
-        sb.Append(" +workshop_download_item 324810 ").Append(item);
+        sb.Append(" +workshop_download_item 324810 ").Append(item.Value);
       sb.Append(" +quit");
 
       Console.WriteLine("Updating TOXIKK and Steam Workshop Items...\n");
@@ -327,9 +327,8 @@ namespace ToxikkServerLauncher
       try
       {
         // delete existing files so only content of the workshop items listed in the .ini survive
-        Directory.Delete(toxikkDir, true);
-        Directory.CreateDirectory(toxikkDir);
-
+        if (Directory.Exists(toxikkDir))
+          Directory.Delete(toxikkDir, true);
         foreach (var itemPath in Directory.GetDirectories(workshopFolder))
           CopyFolder(itemPath, toxikkDir);
       }
@@ -410,9 +409,10 @@ namespace ToxikkServerLauncher
       var destIniCache = new Dictionary<string, IniFile>();
       var optionDict = new SortedDictionary<string,string>(StringComparer.InvariantCultureIgnoreCase);
 
-      // recursive processing of a section and its @Import sections
-      cmdArgs = dedicated ? " -configsubdir=" + section.Name + " -nohomedir -unattended" : " -log -nostartupmovies";
+      // default command line args, can be modified with @cmdline =, +=, -=
+      cmdArgs = dedicated ? "-configsubdir=" + section.Name + " -nohomedir -unattended" : "-log -nostartupmovies";
 
+      // recursive processing of a section and its @Import sections
       ProcessConfigSection(targetConfigFolder, "", section, destIniCache, optionDict, ref cmdArgs);
 
       // build URL with map name and options
@@ -468,11 +468,15 @@ namespace ToxikkServerLauncher
       }
 
       // copy all *.ini files from Workshop/Config folder (but don't overwrite existing files)
-      foreach (var file in Directory.GetFiles(Path.Combine(this.toxikkFolder, @"UDKGame\Workshop\Config"), "*.ini"))
+      var dir = Path.Combine(this.toxikkFolder, @"UDKGame\Workshop\Config");
+      if (Directory.Exists(dir))
       {
-        var target = Path.Combine(targetConfigFolder, Path.GetFileName(file) ?? "");
-        if (!File.Exists(target))
-          FileCopy(file, target, false);
+        foreach (var file in Directory.GetFiles(dir, "*.ini"))
+        {
+          var target = Path.Combine(targetConfigFolder, Path.GetFileName(file) ?? "");
+          if (!File.Exists(target))
+            FileCopy(file, target, false);
+        }
       }
     }
     #endregion
