@@ -8,6 +8,7 @@ Main features:
 - single centralized configuration file used to dynamically generate config folders and files for individual servers.
 - builds the command line with server specific options needed to launch TOXIKK.exe as a dedicated server.
 - allows you to use friendly settings names instead of the real INI or command line option names.
+- allows use of =, += and -= to set/add/remove a value for/to/from an .ini setting array, option URL parameter or the TOXIKK command line.
 
 The @Import=\<source\> command allows you to re-use common configuration parts in multiple server configurations. It can import other sections from the current file,
 or sections from other files, even in subdirectories. When using subdirectories, it also sets the source directory for files used with @CopyFiles.   
