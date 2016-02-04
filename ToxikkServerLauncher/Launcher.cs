@@ -411,7 +411,8 @@ namespace ToxikkServerLauncher
       var optionDict = new SortedDictionary<string,string>(StringComparer.InvariantCultureIgnoreCase);
 
       // recursive processing of a section and its @Import sections
-      cmdArgs = "";
+      cmdArgs = dedicated ? " -configsubdir=" + section.Name + " -nohomedir -unattended" : " -log -nostartupmovies";
+
       ProcessConfigSection(targetConfigFolder, "", section, destIniCache, optionDict, ref cmdArgs);
 
       // build URL with map name and options
@@ -519,25 +520,15 @@ namespace ToxikkServerLauncher
 
           var configMapping = mappedKey.Split('\\');
           if (configMapping.Length == 3)
-          {
             ProcessIniSetting(targetConfigFolder, destIniCache, operation, configMapping, value);
-          }
           else if (mappedKey.ToLower() == "@import")
-          {
             ProcessImport(targetConfigFolder, configSourceFolder, destIniCache, options, ref cmdArgs, value);
-          }
           else if (mappedKey.ToLower() == "@copyfiles")
-          {
             ProcessCopyFile(targetConfigFolder, configSourceFolder, value);
-          }
           else if (mappedKey.ToLower() == "@cmdline")
-          {
-            cmdArgs = value;
-          }
+            ProcessCommandLineArg(ref cmdArgs, operation, value);
           else
-          {
             ProcessUrlParameter(options, operation, mappedKey, value);
-          }
         }
       }
     }
@@ -638,6 +629,18 @@ namespace ToxikkServerLauncher
     }
     #endregion
 
+    #region ProcessCommandLineArg()
+    private static void ProcessCommandLineArg(ref string cmdArgs, string operation, string value)
+    {
+      if (operation == "=")
+        cmdArgs = value;
+      else if (operation == "+=")
+        cmdArgs += " " + value;
+      else if (operation == "-=")
+        cmdArgs = cmdArgs.Replace(value, "").Replace("  ", " ").Trim();
+    }
+    #endregion
+
     #region ProcessUrlParameter()
     private static void ProcessUrlParameter(SortedDictionary<string, string> options, string operation, string mappedKey, string value)
     {
@@ -675,11 +678,6 @@ namespace ToxikkServerLauncher
       args += options;
 
       args += "?steamsockets";
-
-      if (dedicated)
-        args += " -configsubdir=" + sectionName + " -nohomedir -unattended";
-      else
-        args += " -log -nostartupmovies";
 
       if (cmdArgs.Length > 0)
         args += " " + cmdArgs;
