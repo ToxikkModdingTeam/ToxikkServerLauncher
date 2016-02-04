@@ -343,23 +343,20 @@ namespace ToxikkServerLauncher
     #region CopyFolder()
     private void CopyFolder(string sourceDir, string targetDir)
     {
-      if (!Directory.Exists(targetDir))
-        Directory.CreateDirectory(targetDir);
-
       // ReSharper disable AssignNullToNotNullAttribute
       foreach (var file in Directory.GetFiles(sourceDir))
       {
         // copy files to toxikk/udkgame/workshop/....
         var target = Path.Combine(targetDir, Path.GetFileName(file));
         if (File.GetLastWriteTimeUtc(file) != File.GetLastWriteTimeUtc(target) || new FileInfo(file).Length != new FileInfo(target).Length)
-          File.Copy(file, target, true);
+          FileCopy(file, target, true);
 
         // copy files to HTTP redirect
         if (httpFolder != null && ".udk.upk.u".Contains(Path.GetExtension(file)))
         {
           target = Path.Combine(httpFolder, Path.GetFileName(file));
           if (File.GetLastWriteTimeUtc(file) != File.GetLastWriteTimeUtc(target) || new FileInfo(file).Length != new FileInfo(target).Length)
-            File.Copy(file, target, true);
+            FileCopy(file, target, true);
         }
       }
 
@@ -444,12 +441,12 @@ namespace ToxikkServerLauncher
     {
       if (this.dedicated)
       {
-        Directory.Delete(targetConfigFolder, true);
-        Directory.CreateDirectory(targetConfigFolder);
+        if (Directory.Exists(targetConfigFolder))
+          Directory.Delete(targetConfigFolder, true);
 
         // copy all Default*.ini files
         foreach (var file in Directory.GetFiles(configFolder, "Default*.ini"))
-          File.Copy(file, Path.Combine(targetConfigFolder, Path.GetFileName(file) ?? ""), true);
+          FileCopy(file, Path.Combine(targetConfigFolder, Path.GetFileName(file) ?? ""), true);
 
         // copy UDK*.ini where there is no matching Default*.ini
         // (sometimes UDK* files are accessed before they have been generated from Default* files)
@@ -458,7 +455,7 @@ namespace ToxikkServerLauncher
           var fileName = Path.GetFileName(file) ?? "";
           var defaultFile = Path.Combine(Path.GetDirectoryName(file) ?? "", "Default" + fileName.Substring(3));
           if (!File.Exists(defaultFile))
-            File.Copy(file, Path.Combine(targetConfigFolder, fileName), true);
+            FileCopy(file, Path.Combine(targetConfigFolder, fileName), true);
         }
       }
 
@@ -466,7 +463,7 @@ namespace ToxikkServerLauncher
       foreach (var file in Directory.GetFiles(launcherFolder, "UDK*.ini"))
       {
         var fileName = Path.GetFileName(file) ?? "";
-        File.Copy(file, Path.Combine(targetConfigFolder, fileName), true);
+        FileCopy(file, Path.Combine(targetConfigFolder, fileName), true);
       }
 
       // copy all *.ini files from Workshop/Config folder (but don't overwrite existing files)
@@ -474,7 +471,32 @@ namespace ToxikkServerLauncher
       {
         var target = Path.Combine(targetConfigFolder, Path.GetFileName(file) ?? "");
         if (!File.Exists(target))
-          File.Copy(file, target, false);
+          FileCopy(file, target, false);
+      }
+    }
+    #endregion
+
+    #region FileCopy()
+    /// <summary>
+    /// Directory.Delete(dir, true) + Directory.CreateDirectory(dir) has some race condition that may cause the dir to be deleted AFTER it was re-created.
+    /// This hacky method retries to create the target dir in case the initial copy fails.
+    /// </summary>
+    private void FileCopy(string source, string dest, bool overwrite)
+    {
+      var dir = Path.GetDirectoryName(dest) ?? "";
+      if (!Directory.Exists(dir))
+        Directory.CreateDirectory(dir);
+      else if (!overwrite && File.Exists(dest))
+        return;
+
+      try
+      {
+        File.Copy(source, dest, overwrite);
+      }
+      catch (IOException)
+      {
+        Directory.CreateDirectory(dir);
+        File.Copy(source, dest, overwrite);
       }
     }
     #endregion
@@ -484,34 +506,38 @@ namespace ToxikkServerLauncher
     {
       foreach (var unmappedKey in section.Keys)
       {
-        var value = section.GetString(unmappedKey);
-        value = ProcessValueMacros(targetConfigFolder, value);
+        foreach (var rawValue in section.GetAll(unmappedKey))
+        {
+          var value = rawValue.Value;
+          var operation = rawValue.Operator; // =, += or -=
 
-        string mappedKey;
-        if (!keyMapping.TryGetValue(unmappedKey, out mappedKey))
-          mappedKey = unmappedKey;
+          value = ProcessValueMacros(targetConfigFolder, value);
 
-        var configMapping = mappedKey.Split('\\');
-        if (configMapping.Length == 3)
-        {          
-          ProcessIniSetting(targetConfigFolder, destIniCache, configMapping, value);
-        }        
-        else if (mappedKey.ToLower() == "@import")
-        {
-          ProcessImport(targetConfigFolder, configSourceFolder, destIniCache, options, ref cmdArgs, value);
-        }
-        else if (mappedKey.ToLower() == "@copyfiles")
-        {
-          ProcessCopyFile(targetConfigFolder, configSourceFolder, value);
-        }
-        else if (mappedKey.ToLower() == "@cmdline")
-        {
-          cmdArgs = value;
-        }
-        else
-        {
-          // everything else is appended as ?key=value to the UE3 URL
-          options[mappedKey] = value;
+          string mappedKey;
+          if (!keyMapping.TryGetValue(unmappedKey, out mappedKey))
+            mappedKey = unmappedKey;
+
+          var configMapping = mappedKey.Split('\\');
+          if (configMapping.Length == 3)
+          {
+            ProcessIniSetting(targetConfigFolder, destIniCache, operation, configMapping, value);
+          }
+          else if (mappedKey.ToLower() == "@import")
+          {
+            ProcessImport(targetConfigFolder, configSourceFolder, destIniCache, options, ref cmdArgs, value);
+          }
+          else if (mappedKey.ToLower() == "@copyfiles")
+          {
+            ProcessCopyFile(targetConfigFolder, configSourceFolder, value);
+          }
+          else if (mappedKey.ToLower() == "@cmdline")
+          {
+            cmdArgs = value;
+          }
+          else
+          {
+            ProcessUrlParameter(options, operation, mappedKey, value);
+          }
         }
       }
     }
@@ -539,7 +565,7 @@ namespace ToxikkServerLauncher
     /// <summary>
     /// process a "filename\section\key=value" entry
     /// </summary>
-    private static void ProcessIniSetting(string targetConfigFolder, Dictionary<string, IniFile> destIniCache, string[] configMapping, string value)
+    private static void ProcessIniSetting(string targetConfigFolder, Dictionary<string, IniFile> destIniCache, string operation, string[] configMapping, string value)
     {
       IniFile destIni;
       string destIniPath = targetConfigFolder + "\\" + configMapping[0];
@@ -549,7 +575,12 @@ namespace ToxikkServerLauncher
         destIniCache.Add(destIniPath, destIni);
       }
       var destSec = destIni.GetSection(configMapping[1], true);
-      destSec.Set(configMapping[2], value);
+      if (operation == "=")
+        destSec.Set(configMapping[2], value);
+      else if (operation == "+=")
+        destSec.Add(configMapping[2], value);
+      else if (operation == "-=")
+        destSec.Remove(configMapping[2], value);
     }
 
     #endregion
@@ -599,12 +630,32 @@ namespace ToxikkServerLauncher
           var folder = File.Exists(Path.Combine(launcherFolder, configSourceFolder, names[0])) ? Path.Combine(launcherFolder, configSourceFolder) : configFolder;
           var source = Path.Combine(folder, names[0]);
           if (File.Exists(source))
-            File.Copy(source, Path.Combine(targetConfigFolder, names[1]), true);
+            FileCopy(source, Path.Combine(targetConfigFolder, names[1]), true);
           else
             Console.Error.WriteLine("WARNING: @copyfile source not found: " + names[0]);
         }
       }
     }
+    #endregion
+
+    #region ProcessUrlParameter()
+    private static void ProcessUrlParameter(SortedDictionary<string, string> options, string operation, string mappedKey, string value)
+    {
+      if (operation == "=")
+        options[mappedKey] = value;
+      else if (operation == "+=")
+      {
+        string oldValue;
+        options[mappedKey] = options.TryGetValue(mappedKey, out oldValue) ? oldValue + "," + value : value;
+      }
+      else if (operation == "-=")
+      {
+        string oldValue;
+        if (options.TryGetValue(mappedKey, out oldValue))
+          options[mappedKey] = oldValue.Replace(value, "").Replace(",,", ",").Trim(',');
+      }
+    }
+
     #endregion
 
     #region LaunchServer()
