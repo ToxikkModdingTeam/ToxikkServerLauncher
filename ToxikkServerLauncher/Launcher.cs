@@ -326,7 +326,7 @@ namespace ToxikkServerLauncher
       var toxikkDir = Path.Combine(this.toxikkFolder, @"UDKGame\Workshop");
       try
       {
-        // delete existing files so only content of the workshop items listed in the .ini survive
+        // delete existing files so only content of the workshop items listed in the .ini survives
         if (Directory.Exists(toxikkDir))
           Directory.Delete(toxikkDir, true);
         foreach (var itemPath in Directory.GetDirectories(workshopFolder))
@@ -373,7 +373,10 @@ namespace ToxikkServerLauncher
       foreach (var section in ini.Sections)
       {
         if (section.Name.StartsWith(ServerSectionPrefix))
-          Console.WriteLine($"{section.Name.Substring(ServerSectionPrefix.Length),3}: {section.GetString("ServerName")}");
+        {
+          var name = section.GetString("@ServerName") ?? section.GetString("ServerName");
+          Console.WriteLine($"{section.Name.Substring(ServerSectionPrefix.Length),3}: {name}");
+        }
       }
     }
     #endregion
@@ -531,7 +534,7 @@ namespace ToxikkServerLauncher
             ProcessCopyFile(targetConfigFolder, configSourceFolder, value);
           else if (mappedKey.ToLower() == "@cmdline")
             ProcessCommandLineArg(ref cmdArgs, operation, value);
-          else
+          else if (!mappedKey.StartsWith("@"))
             ProcessUrlParameter(options, operation, mappedKey, value);
         }
       }
