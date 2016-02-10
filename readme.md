@@ -35,10 +35,10 @@ To auto-download updates from Steam, all TOXIKK.exe processes must be terminated
 
 What it does
 ------------
-The launcher copies SteamApps\\Common\\TOXIKK\\UDKGame\\Config\\Default*.ini to a DedicatedServer... subdirectory, overwriting any existing files.
-It also copies all UDK*.ini files which don't have a corresponding Default*.ini. (Such files are needed for custom mutators to solve a race condition 
-between accessing the UDK* file and generating it from a Default* file.)   
-It then copies all UDK*.ini files from the server launcher's directory to the DedicatedServer... config directory.
+The launcher copies SteamApps\\Common\\TOXIKK\\UDKGame\\Config\\Default\*.ini to a DedicatedServer... subdirectory, overwriting any existing files.
+It also copies all UDK\*.ini files which don't have a corresponding Default\*.ini. (Such files are needed for custom mutators to solve a race condition 
+between accessing the UDK\* file and generating it from a Default\* file.)   
+It then copies all UDK\*.ini files from the server launcher's directory to the DedicatedServer... config directory.
 After that, it applies the INI changes defined in your MyServerConfig.ini \[DedicatedServer...\] sections to the files in the subdirectory.
 All settings in ServerConfig.ini which don't refer to an INI file are used as the command line options for toxikk.exe.
 
