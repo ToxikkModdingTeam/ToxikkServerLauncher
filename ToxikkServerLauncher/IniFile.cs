@@ -7,24 +7,27 @@ namespace ToxikkServerLauncher
 {
   public class IniFile
   {
+    #region class Entry
+
+    public class Entry
+    {
+      public string Value;
+      public string Operator;
+
+      public Entry(string val, string op = "=")
+      {
+        Value = val;
+        Operator = op;
+      }
+    }
+
+    #endregion
+
     #region class Section
 
     public class Section
     {
-      #region class IniValue
-      public class IniValue
-      {
-        public string Value;
-        public string Operator;
-
-        public IniValue(string val, string op = "=")
-        {
-          Value = val;
-          Operator = op;
-        }
-      }
-      #endregion
-      private readonly Dictionary<string, List<IniValue>> data = new Dictionary<string, List<IniValue>>(StringComparer.CurrentCultureIgnoreCase);
+      private readonly Dictionary<string, List<Entry>> data = new Dictionary<string, List<Entry>>(StringComparer.CurrentCultureIgnoreCase);
 
       public Section(string name)
       {
@@ -38,20 +41,20 @@ namespace ToxikkServerLauncher
       #region Add()
       internal void Add(string key, string value, string op = "=")
       {
-        List<IniValue> list;
+        List<Entry> list;
         if (!data.TryGetValue(key, out list))
         {
-          list = new List<IniValue>();
+          list = new List<Entry>();
           data.Add(key, list);
         }
-        list.Add(new IniValue(value, op));
+        list.Add(new Entry(value, op));
       }
       #endregion
 
       #region Remove()
       internal void Remove(string key, string value)
       {
-        List<IniValue> list;
+        List<Entry> list;
         if (data.TryGetValue(key, out list))
         {
           for (int i = 0; i < list.Count; i++)
@@ -69,7 +72,7 @@ namespace ToxikkServerLauncher
       #region Set()
       internal void Set(string key, string value, string op = "=")
       {
-        data[key] = new List<IniValue> { new IniValue(value, op) };
+        data[key] = new List<Entry> { new Entry(value, op) };
       }
       #endregion
 
@@ -81,7 +84,7 @@ namespace ToxikkServerLauncher
       #region GetString()
       public string GetString(string key)
       {
-        List<IniValue> list;
+        List<Entry> list;
         if (!data.TryGetValue(key, out list))
           return null;
         return list[0].Value;
@@ -91,7 +94,7 @@ namespace ToxikkServerLauncher
       #region GetBool()
       public bool GetBool(string key, bool defaultValue = false)
       {
-        List<IniValue> list;
+        List<Entry> list;
         if (!data.TryGetValue(key, out list) || list.Count == 0)
           return defaultValue;
         var val = list[0].Value.ToLower();
@@ -104,44 +107,43 @@ namespace ToxikkServerLauncher
       #region GetInt()
       public int GetInt(string key, int defaultValue = 0)
       {
-        List<IniValue> list;
+        List<Entry> list;
         if (!data.TryGetValue(key, out list) || list.Count == 0)
           return defaultValue;
         var val = list[0].Value.ToLower();
         if (val == "")
           return defaultValue;
         int intVal;
-        return int.TryParse(val, out intVal) ? intVal : defaultValue;
+        return Int32.TryParse(val, out intVal) ? intVal : defaultValue;
       }
       #endregion
 
       #region GetDecimal()
       public decimal GetDecimal(string key, decimal defaultValue = 0)
       {
-        List<IniValue> list;
+        List<Entry> list;
         if (!data.TryGetValue(key, out list) || list.Count == 0)
           return defaultValue;
         var val = list[0].Value.ToLower();
         if (val == "")
           return defaultValue;
         decimal intVal;
-        return decimal.TryParse(val, out intVal) ? intVal : defaultValue;
+        return Decimal.TryParse(val, out intVal) ? intVal : defaultValue;
       }
       #endregion
 
 
       #region GetAll()
 
-      public List<IniValue> GetAll(string key)
+      public List<Entry> GetAll(string key)
       {
-        List<IniValue> list;
+        List<Entry> list;
         if (!data.TryGetValue(key, out list))
-          return new List<IniValue>();
+          return new List<Entry>();
         return list;
       }
 
       #endregion
-
     }
     #endregion
 
@@ -149,6 +151,7 @@ namespace ToxikkServerLauncher
     private readonly List<Section> sectionList;
     private readonly string fileName;
 
+    #region ctor()
     public IniFile(string fileName)
     {
       this.sectionDict = new Dictionary<string, Section>();
@@ -156,15 +159,18 @@ namespace ToxikkServerLauncher
       this.fileName = fileName;
       this.ReadIniFile();
     }
+    #endregion
 
     public IEnumerable<Section> Sections => this.sectionList;
+
     public string FileName => this.fileName;
 
+    #region GetSection()
     public Section GetSection(string sectionName, bool create = false)
     {
       Section section;
       sectionDict.TryGetValue(sectionName, out section);
-      if (section == null)
+      if (section == null && create)
       {
         section = new Section(sectionName);
         sectionList.Add(section);
@@ -172,6 +178,7 @@ namespace ToxikkServerLauncher
       }
       return section;
     }
+    #endregion
 
     #region ReadIniFile()
     private void ReadIniFile()
@@ -190,21 +197,21 @@ namespace ToxikkServerLauncher
           string trimmedLine = line.Trim();
           if (trimmedLine.StartsWith(";"))
             continue;
+
           if (trimmedLine.StartsWith("["))
           {
-            string sectionName = trimmedLine.EndsWith("]")
-                                   ? trimmedLine.Substring(1, trimmedLine.Length - 2)
-                                   : trimmedLine.Substring(1);
+            string sectionName = trimmedLine.EndsWith("]") ? trimmedLine.Substring(1, trimmedLine.Length - 2) : trimmedLine.Substring(1);
             currentSection = new Section(sectionName);
             this.sectionList.Add(currentSection);
             this.sectionDict[sectionName] = currentSection;
             continue;
           }
+
           if (currentSection == null)
             continue;
 
           int idx = -1;
-          if (val == null)
+          if (val == null) // assignment starts on this line (not a continuation from a previous line which ended with a backslash)
           {
             idx = trimmedLine.IndexOf("=");
             if (idx <= 0)
@@ -223,9 +230,9 @@ namespace ToxikkServerLauncher
             val = "";
           }
 
-          if (line.EndsWith("\\"))
+          if (line.EndsWith("\\")) // value will continue on the next line
             val += line.Substring(idx + 1, line.Length - idx - 1 - 1).Trim() + "\n";
-          else
+          else // complete value available
           {
             val += line.Substring(idx + 1).Trim();
             currentSection.Add(key, val, op);

@@ -18,7 +18,7 @@ namespace ToxikkServerLauncher
     private string workshopFolder;
     private string httpFolder;
     private string toxikkExe;
-    private IniFile ini;
+    private IniFile mainIni;
     private bool dedicated = true;
     private bool showCommandLine;
     private bool pause;
@@ -115,23 +115,26 @@ namespace ToxikkServerLauncher
       if (!File.Exists(myConfigFile))
         File.Move(configFile, myConfigFile);
       configFile = myConfigFile;
-      ini = new IniFile(configFile);
+      mainIni = new IniFile(configFile);
 
       // import old server config file format if necessary
-      if (!ini.Sections.Any(s => s.Name.StartsWith(ServerSectionPrefix)))
+      if (!mainIni.Sections.Any(s => s.Name.StartsWith(ServerSectionPrefix)))
       {
         Console.WriteLine("No [" + ServerSectionPrefix + "...] sections found in ServerConfig.ini. Importing settings from ServerConfigList.ini ...");
         ConvertLegacyServerConfigListIni();
-        ini = new IniFile(configFile);
+        mainIni = new IniFile(configFile);
       }
 
       // build dictionary for "simple name" translation
-      var section = ini.GetSection("SimpleNames");
-      foreach (var key in section.Keys)
-        keyMapping[key] = section.GetString(key) ?? "";
+      var section = mainIni.GetSection("SimpleNames");
+      if (section != null)
+      {
+        foreach (var key in section.Keys)
+          keyMapping[key] = section.GetString(key) ?? "";
+      }
 
       // process launcher config 
-      section = ini.GetSection("ServerLauncher");
+      section = mainIni.GetSection("ServerLauncher");
       if (section != null)
       {
         var toxikkDir = section.GetString("ToxikkDir");
@@ -282,7 +285,7 @@ namespace ToxikkServerLauncher
         return;
       }
 
-      var sec = ini.GetSection("SteamWorkshop");
+      var sec = mainIni.GetSection("SteamWorkshop");
       if (sec == null)
         return;
 
@@ -370,7 +373,7 @@ namespace ToxikkServerLauncher
     private void ListConfigurations()
     {
       Console.WriteLine("Available server configurations:");
-      foreach (var section in ini.Sections)
+      foreach (var section in mainIni.Sections)
       {
         if (section.Name.StartsWith(ServerSectionPrefix))
         {
@@ -388,7 +391,7 @@ namespace ToxikkServerLauncher
         return;
 
       var sectionName = ServerSectionPrefix + serverId;
-      var section = ini.GetSection(sectionName);
+      var section = mainIni.GetSection(sectionName);
       if (section == null)
       {
         Console.Error.WriteLine("No configuration section for " + sectionName);
@@ -397,14 +400,14 @@ namespace ToxikkServerLauncher
 
       Console.WriteLine("Starting " + (section.GetString("ServerName") ?? sectionName));
       string map, options, cmdArgs;
-      if (GenerateConfig(section, out map, out options, out cmdArgs))
+      if (GenerateConfig(mainIni, section, out map, out options, out cmdArgs))
         LaunchServer(map, options, cmdArgs, sectionName);
     }
 
     #endregion
 
     #region GenerateConfig()
-    private bool GenerateConfig(IniFile.Section section, out string map, out string options, out string cmdArgs)
+    private bool GenerateConfig(IniFile iniFile, IniFile.Section section, out string map, out string options, out string cmdArgs)
     {
       var targetConfigFolder = this.dedicated ? Path.Combine(configFolder, section.Name) : this.configFolder.TrimEnd('\\', '/');
       CopyIniFilesToServerConfigFolder(targetConfigFolder);
@@ -416,7 +419,7 @@ namespace ToxikkServerLauncher
       cmdArgs = dedicated ? "-configsubdir=" + section.Name + " -nohomedir -unattended" : "-log -nostartupmovies";
 
       // recursive processing of a section and its @Import sections
-      ProcessConfigSection(targetConfigFolder, "", section, destIniCache, optionDict, ref cmdArgs);
+      ProcessConfigSection(targetConfigFolder, "", iniFile, section, destIniCache, optionDict, ref cmdArgs);
 
       // build URL with map name and options
       if (!optionDict.TryGetValue("map", out map))
@@ -510,7 +513,7 @@ namespace ToxikkServerLauncher
     #endregion
 
     #region ProcessConfigSection()
-    private void ProcessConfigSection(string targetConfigFolder, string configSourceFolder, IniFile.Section section, Dictionary<string, IniFile> destIniCache, SortedDictionary<string,string> options, ref string cmdArgs)
+    private void ProcessConfigSection(string targetConfigFolder, string configSourceFolder, IniFile iniFile, IniFile.Section section, Dictionary<string, IniFile> destIniCache, SortedDictionary<string,string> options, ref string cmdArgs)
     {
       foreach (var unmappedKey in section.Keys)
       {
@@ -529,7 +532,7 @@ namespace ToxikkServerLauncher
           if (configMapping.Length == 3)
             ProcessIniSetting(targetConfigFolder, destIniCache, operation, configMapping, value);
           else if (mappedKey.ToLower() == "@import")
-            ProcessImport(targetConfigFolder, configSourceFolder, destIniCache, options, ref cmdArgs, value);
+            ProcessImport(targetConfigFolder, configSourceFolder, iniFile, destIniCache, options, ref cmdArgs, value);
           else if (mappedKey.ToLower() == "@copyfiles")
             ProcessCopyFile(targetConfigFolder, configSourceFolder, value);
           else if (mappedKey.ToLower() == "@cmdline")
@@ -587,13 +590,13 @@ namespace ToxikkServerLauncher
     /// <summary>
     /// recursively process settings from another section or file
     /// </summary>
-    private void ProcessImport(string targetConfigFolder, string configSourceFolder, Dictionary<string, IniFile> destIniCache, SortedDictionary<string, string> options, ref string cmdArgs, string value)
+    private void ProcessImport(string targetConfigFolder, string configSourceFolder, IniFile iniFile, Dictionary<string, IniFile> destIniCache, SortedDictionary<string, string> options, ref string cmdArgs, string value)
     {
-      var importRegex = new Regex(@"^(?:(.*)[/\\])?(\S+\.ini)(\\\S+)?$", RegexOptions.IgnoreCase);
+      var regexImportFromOtherFile = new Regex(@"^(?:(.*)[/\\])?(\S+\.ini)(\\\S+)?$", RegexOptions.IgnoreCase);
 
       foreach (var import in value.Split(','))
       {
-        var match = importRegex.Match(import);
+        var match = regexImportFromOtherFile.Match(import);
         if (match.Success)
         {
           var subFolder = match.Groups[1].Success ? Path.Combine(configSourceFolder, match.Groups[1].Value) : configSourceFolder;
@@ -604,10 +607,16 @@ namespace ToxikkServerLauncher
           if (sec == null)
             Console.Error.WriteLine("WARNING: @import={0}: failed to locate {1}{2}{3}", value, subFolder, subFile, subSection);
           else
-            ProcessConfigSection(targetConfigFolder, subFolder, sec, destIniCache, options, ref cmdArgs);
+            ProcessConfigSection(targetConfigFolder, subFolder, subIni, sec, destIniCache, options, ref cmdArgs);
         }
-        else
-          ProcessConfigSection(targetConfigFolder, configSourceFolder, ini.GetSection(import), destIniCache, options, ref cmdArgs);
+        else // import section from same file
+        {
+          var sec = mainIni.GetSection(import);
+          if (sec == null)
+            Console.Error.WriteLine("WARNING: @import={0}: failed to locate [{1}]", value, import);
+          else
+            ProcessConfigSection(targetConfigFolder, configSourceFolder, iniFile, sec, destIniCache, options, ref cmdArgs);
+        }
       }
     }
 
