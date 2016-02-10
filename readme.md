@@ -12,7 +12,9 @@ Main features:
 
 The @Import=\<source\> command allows you to re-use common configuration parts in multiple server configurations. It can import other sections from the current file,
 or sections from other files, even in subdirectories. When using subdirectories, it also sets the source directory for files used with @CopyFiles.   
-The @CopyFiles=\<from:to,...\> command allows you to copy+rename special configuration files for specific servers (e.g. DefaultMapList.ini with only BL/SA maps).
+The @CopyFiles=\<from:to,...\> command allows you to copy+rename special configuration files for specific servers (e.g. DefaultMapList.ini with only BL/SA maps).   
+The @CmdLine+=... command can be used to add startup parameters to the command line   
+The @ServerName=... command allows you to set a label for the server in the menu (other than the server's ServerName in the server browser)
 
 For port number values a macro can be used to automatically generate the number from the X in DedicatedServerX:
 The value "@port,10000,2" is calculated as 10000 + (X-1) * 2. Your DedicatedServer1 will use port 10000, DedicatedServer2 will use 10002, ...
