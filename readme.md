@@ -9,6 +9,7 @@ Main features:
 - builds the command line with server specific options needed to launch TOXIKK.exe as a dedicated server.
 - allows you to use friendly settings names instead of the real INI or command line option names.
 - allows use of =, += and -= to set/add/remove a value for/to/from an .ini setting array, option URL parameter or the TOXIKK command line.
+- allows machine specific setting overrides by using sections like \[\<section\>:\<machine name\>], so the same config file can be used on multiple machines.
 
 The @Import=\<source\> command allows you to re-use common configuration parts in multiple server configurations. It can import other sections from the current file,
 or sections from other files, even in subdirectories. When using subdirectories, it also sets the source directory for files used with @CopyFiles.   
@@ -18,6 +19,9 @@ The @ServerName=... command allows you to set a label for the server in the menu
 
 For port number values a macro can be used to automatically generate the number from the X in DedicatedServerX:
 The value "@port,10000,2" is calculated as 10000 + (X-1) * 2. Your DedicatedServer1 will use port 10000, DedicatedServer2 will use 10002, ...
+
+Machine specific override sections work for [ServerLauncher], [DedicatedServerX] and [SteamWorkshop]. 
+The first two can override single settings while the [SteamWorkshop:\<machine\>] replace the default [SteamWorkshop] entirely.
 
 Setup
 -----

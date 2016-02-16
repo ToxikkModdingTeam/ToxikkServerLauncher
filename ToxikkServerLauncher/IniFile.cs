@@ -201,8 +201,7 @@ namespace ToxikkServerLauncher
           if (trimmedLine.StartsWith("["))
           {
             string sectionName = trimmedLine.EndsWith("]") ? trimmedLine.Substring(1, trimmedLine.Length - 2) : trimmedLine.Substring(1);
-            currentSection = new Section(sectionName);
-            this.sectionList.Add(currentSection);
+            currentSection = this.GetSection(sectionName, true); // merge multiple sections with same name
             this.sectionDict[sectionName] = currentSection;
             continue;
           }

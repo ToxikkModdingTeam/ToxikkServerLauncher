@@ -24,6 +24,7 @@ namespace ToxikkServerLauncher
     private bool pause;
     private bool skipWorkshopUpdate;
     private bool forceWorkshopUpdate;
+    private readonly string machineName = Environment.MachineName;
 
     /// <summary>
     /// Maps logical server setting names to real setting names (either ini-file\section\section specifier or a command line option name) as found in the [SimpleNames] section
@@ -133,33 +134,41 @@ namespace ToxikkServerLauncher
           keyMapping[key] = section.GetString(key) ?? "";
       }
 
-      // process launcher config 
-      section = mainIni.GetSection("ServerLauncher");
-      if (section != null)
+      // process launcher config (first found value wins)
+      ReadLauncherConfig(mainIni.GetSection("ServerLauncher:" + machineName));
+      ReadLauncherConfig(mainIni.GetSection("ServerLauncher"));
+    }
+    #endregion
+
+    #region ReadLauncherConfig()
+    private void ReadLauncherConfig(IniFile.Section section)
+    {
+      if (section == null)
+        return;
+
+      var toxikkDir = section.GetString("ToxikkDir");
+      if (toxikkDir != null && this.toxikkFolder == null)
       {
-        var toxikkDir = section.GetString("ToxikkDir");
-        if (toxikkDir != null && this.toxikkFolder == null)
-        {
-          var path = Path.Combine(toxikkDir, @"Binaries\win32\TOXIKK.exe");
-          if (File.Exists(path))
-            this.toxikkFolder = toxikkDir;
-        }
+        var path = Path.Combine(toxikkDir, @"Binaries\win32\TOXIKK.exe");
+        if (File.Exists(path))
+          this.toxikkFolder = toxikkDir;
+      }
 
-        var workshopDir = section.GetString("WorkshopDir");
-        if (workshopDir != null && this.workshopFolder == null && Directory.Exists(workshopDir))
-          this.workshopFolder = workshopDir;
+      var workshopDir = section.GetString("WorkshopDir");
+      if (workshopDir != null && this.workshopFolder == null && Directory.Exists(workshopDir))
+        this.workshopFolder = workshopDir;
 
-        this.httpFolder = section.GetString("HttpRedirectDir");
+      this.httpFolder = section.GetString("HttpRedirectDir");
 
-        var steamcmdDir = section.GetString("SteamcmdDir");
-        if (steamcmdDir != null)
-        {
-          var exe = Path.Combine(steamcmdDir, "steamcmd.exe");
-          if (File.Exists(exe))
-            this.steamcmdExe = exe;
-        }
+      var steamcmdDir = section.GetString("SteamcmdDir");
+      if (steamcmdDir != null && this.steamcmdExe == null)
+      {
+        var exe = Path.Combine(steamcmdDir, "steamcmd.exe");
+        if (File.Exists(exe))
+          this.steamcmdExe = exe;
       }
     }
+
     #endregion
 
     #region ConvertLegacyServerConfigListIni()
@@ -228,6 +237,12 @@ namespace ToxikkServerLauncher
     {
       toxikkFolder = toxikkFolder?.TrimEnd('\\', '/') ?? Path.Combine(launcherFolder, "..");
       toxikkExe = Path.Combine(toxikkFolder, @"Binaries\win32\TOXIKK.exe");
+      if (!File.Exists(toxikkExe))
+      {
+        Console.Error.WriteLine("Couldn't find TOXIKK.exe. Please configure the path in MyServerConfig.ini or copy+run the launcher from TOXIKK\\TOXIKKServers.");
+        return false;
+      }
+
       configFolder = Path.Combine(toxikkFolder, @"UDKGame\Config");
 
       if (workshopFolder == null)
@@ -262,7 +277,7 @@ namespace ToxikkServerLauncher
     #region UpdateWorkshop()
     private void UpdateWorkshop()
     {
-      if (System.Diagnostics.Process.GetProcessesByName("toxikk").Length >= 1)
+      if (System.Diagnostics.Process.GetProcessesByName("toxikk").Length >= 1 && !this.forceWorkshopUpdate)
         Console.WriteLine("TOXIKK.exe is already running, skipping workshop updates.");
       else
       {
@@ -285,7 +300,7 @@ namespace ToxikkServerLauncher
         return;
       }
 
-      var sec = mainIni.GetSection("SteamWorkshop");
+      var sec = mainIni.GetSection("SteamWorkshop:" + machineName) ?? mainIni.GetSection("SteamWorkshop");
       if (sec == null)
         return;
 
@@ -375,7 +390,7 @@ namespace ToxikkServerLauncher
       Console.WriteLine("Available server configurations:");
       foreach (var section in mainIni.Sections)
       {
-        if (section.Name.StartsWith(ServerSectionPrefix))
+        if (section.Name.StartsWith(ServerSectionPrefix) && !section.Name.Contains(":"))
         {
           var name = section.GetString("@ServerName") ?? section.GetString("ServerName");
           Console.WriteLine($"{section.Name.Substring(ServerSectionPrefix.Length),3}: {name}");
@@ -418,8 +433,9 @@ namespace ToxikkServerLauncher
       // default command line args, can be modified with @cmdline =, +=, -=
       cmdArgs = dedicated ? "-configsubdir=" + section.Name + " -nohomedir -unattended" : "-log -nostartupmovies";
 
-      // recursive processing of a section and its @Import sections
+      // recursive processing of a section and its @Import sections, then override any section with a machine-specific section
       ProcessConfigSection(targetConfigFolder, "", iniFile, section, destIniCache, optionDict, ref cmdArgs);
+      ProcessConfigSection(targetConfigFolder, "", iniFile, iniFile.GetSection(section.Name + ":" + machineName), destIniCache, optionDict, ref cmdArgs);
 
       // build URL with map name and options
       if (!optionDict.TryGetValue("map", out map))
@@ -515,6 +531,8 @@ namespace ToxikkServerLauncher
     #region ProcessConfigSection()
     private void ProcessConfigSection(string targetConfigFolder, string configSourceFolder, IniFile iniFile, IniFile.Section section, Dictionary<string, IniFile> destIniCache, SortedDictionary<string,string> options, ref string cmdArgs)
     {
+      if (section == null)
+        return;
       foreach (var unmappedKey in section.Keys)
       {
         foreach (var rawValue in section.GetAll(unmappedKey))
@@ -547,16 +565,21 @@ namespace ToxikkServerLauncher
     #region ProcessValueMacros()
     private static string ProcessValueMacros(string targetConfigFolder, string value)
     {
-      var portRegex = new Regex(@"^@port,(\d+),(\d+)\w*$");
-      var serverNumRegx = new Regex(@".*?(\d+)$");
+      var portRegex = new Regex(@"^@port,\s*(\d+),\s*(-?\d+)\s*$", RegexOptions.IgnoreCase);
+      var skillClassRegex = new Regex(@"^@skillclass,\s*(\d+)\s*$", RegexOptions.IgnoreCase);
+      var serverNumRegx = new Regex(@".*?(\d+)");
 
       // process @port,base,multiplier macro to auto-generate port numbers
       var port = portRegex.Match(value);
       var serv = serverNumRegx.Match(targetConfigFolder);
       if (port.Success && serv.Success)
-      {
-        value = (int.Parse(port.Groups[1].Value) + int.Parse(port.Groups[2].Value)*(int.Parse(serv.Groups[1].Value) - 1)).ToString();
-      }
+        return (int.Parse(port.Groups[1].Value) + int.Parse(port.Groups[2].Value)*(int.Parse(serv.Groups[1].Value) - 1)).ToString();
+
+      // @SkillClass
+      var match = skillClassRegex.Match(value);
+      if (match.Success)
+        return (int.Parse(match.Groups[1].Value)/1.5f).ToString();
+
       return value;
     }
 
@@ -607,15 +630,21 @@ namespace ToxikkServerLauncher
           if (sec == null)
             Console.Error.WriteLine("WARNING: @import={0}: failed to locate {1}{2}{3}", value, subFolder, subFile, subSection);
           else
+          {
             ProcessConfigSection(targetConfigFolder, subFolder, subIni, sec, destIniCache, options, ref cmdArgs);
+            ProcessConfigSection(targetConfigFolder, subFolder, subIni, subIni.GetSection(subSection + ":" + machineName), destIniCache, options, ref cmdArgs);
+          }
         }
         else // import section from same file
         {
-          var sec = mainIni.GetSection(import);
+          var sec = iniFile.GetSection(import);
           if (sec == null)
             Console.Error.WriteLine("WARNING: @import={0}: failed to locate [{1}]", value, import);
           else
+          {
             ProcessConfigSection(targetConfigFolder, configSourceFolder, iniFile, sec, destIniCache, options, ref cmdArgs);
+            ProcessConfigSection(targetConfigFolder, configSourceFolder, iniFile, iniFile.GetSection(import + ":" + machineName), destIniCache, options, ref cmdArgs);
+          }
         }
       }
     }
