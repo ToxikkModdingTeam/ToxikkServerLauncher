@@ -11,10 +11,10 @@ Main features:
 - friendly settings names instead of the real INI or command line option names.
 - allows use of =, += and -= to set/add/remove a value for/to/from an .ini setting array, option URL parameter or the TOXIKK command line.
 - machine specific setting overrides by using sections like \[\<section\>:\<machine\>], so the same config file can be used on multiple machines.
-- centralized definition of values which can be reused in ini/option values with \@varname\@ placeholders.
+- variables and macros for the values of ini/option settings
 
 Special names recognized on the left hand side of an assignment:
-- @Import=\<source,...\> allows you to re-use common configuration parts. It can import other sections from the current file,
+- @Import=\<source,...\> allows you to reuse common configuration parts. It can import other sections from the current file,
 or sections from other files, even in subdirectories. When using subdirectories, it also sets the source directory for files used with @CopyFiles.   
 - @CopyFiles=\<from:to,...\> copies (and renames) configuration files for specific servers (e.g. MyMapList_CC.ini =\> DefaultMapList.ini).   
 - @CmdLine+=... adds startup parameters to the command line (-= can be used to remove default startup options).  
@@ -22,7 +22,7 @@ or sections from other files, even in subdirectories. When using subdirectories,
 - @myVar@=... defines a variable "myVar" which will replace @myVar@ found inside ini/option values
 
 Special values for the right hand side of an assignment:
-- @myVar@ is expanded with the value previously assigned to @myVar@.
+- @myVar@ is expanded with the value assigned to @myVar@.
 - @port,10000,2 calculates a port number as 10000 + 2*(X-1), where X is the number of \[DedicatedServerX\]
 - @skillClass,X converts the value X used for Toxikk's skill classes to a value for UDK's Difficulty setting
 - @env,varname returns the value of the environment variable "varname"
