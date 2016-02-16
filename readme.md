@@ -1,7 +1,7 @@
 ToxikkServerLaucher
 ===
 
-This little tool helps you manage a whole set of different server configurations without the typical copy&paste, version update, ... issues.
+This tool centralizes configurations for many server instances on multiple machines.
 
 Main features:
 - update TOXIKK and workshop items through steamcmd.exe
@@ -14,12 +14,12 @@ Main features:
 - centralized definition of values which can be reused in ini/option values with \@varname\@ placeholders.
 
 Special names recognized on the left hand side of an assignment:
-- @Import=\<source\> command allows you to re-use common configuration parts in multiple server configurations. It can import other sections from the current file,
+- @Import=\<source,...\> allows you to re-use common configuration parts. It can import other sections from the current file,
 or sections from other files, even in subdirectories. When using subdirectories, it also sets the source directory for files used with @CopyFiles.   
-- @CopyFiles=\<from:to,...\> command allows you to copy+rename special configuration files for specific servers (e.g. DefaultMapList.ini with only BL/SA maps).   
-- @CmdLine+=... command can be used to add startup parameters to the command line   
-- @ServerName=... command allows you to set a label for the server in the menu (other than the server's ServerName in the server browser)
-- @myVar@=... allows you to define a variable "myVar" which will replace @myVar@ found inside ini/option values
+- @CopyFiles=\<from:to,...\> copies (and renames) configuration files for specific servers (e.g. MyMapList_CC.ini =\> DefaultMapList.ini).   
+- @CmdLine+=... adds startup parameters to the command line (-= can be used to remove default startup options).  
+- @ServerName=... sets the label for the server in the menu (to override the server's ServerName shown in the server browser)
+- @myVar@=... defines a variable "myVar" which will replace @myVar@ found inside ini/option values
 
 Special values for the right hand side of an assignment:
 - @myVar@ is expanded with the value previously assigned to @myVar@.
