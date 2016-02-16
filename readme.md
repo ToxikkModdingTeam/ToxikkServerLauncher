@@ -19,14 +19,14 @@ or sections from other files, even in subdirectories. When using subdirectories,
 - @CopyFiles=\<from:to,...\> copies (and renames) configuration files for specific servers (e.g. MyMapList_CC.ini =\> DefaultMapList.ini).   
 - @CmdLine+=... adds startup parameters to the command line (-= can be used to remove default startup options).  
 - @ServerName=... sets the label for the server in the menu (to override the server's ServerName shown in the server browser)
-- @myVar@=... defines a variable "myVar" which will replace @myVar@ found inside ini/option values
+- @myVar@=... defines a variable "myVar" and assigns a value
 
 Special values for the right hand side of an assignment:
 - @myVar@ is expanded with the value assigned to @myVar@.
 - @port,10000,2 calculates a port number as 10000 + 2*(X-1), where X is the number of \[DedicatedServerX\]
 - @skillClass,X converts the value X used for Toxikk's skill classes to a value for UDK's Difficulty setting
 - @env,varname returns the value of the environment variable "varname"
-- @id returns the X of \[DedicatedServerX\]
+- @id returns the X of \[DedicatedServerX\] for the current server. The value is 0 when generating a base/client configuration.
  
 
 Setup

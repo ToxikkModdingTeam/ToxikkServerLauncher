@@ -106,6 +106,7 @@ namespace ToxikkServerLauncher
               this.dedicated = false;
               break;
             case "showcommand":
+            case "sc":
               this.showCommandLine = true;
               break;
             case "pause":
@@ -154,7 +155,7 @@ Options (can start with '-' or '/'):
   -listen, -l:          Start a listen server instead of a dedicated server
   -workshopdir=...      Override the directory from where the launcher will copy workshop content to the TOXIKK folder
   -toxikkdir=...        Override the directory where the launcher will copy files to
-  -showcommand:         Print the generated TOXIKK.exe command line on screen before starting TOXIKK
+  -showcommand, -sc:    Print the generated TOXIKK.exe command line on screen before starting TOXIKK
   -pause, -p:           Wait for Enter key to exit the launcher (used for debugging to prevent closing the window)
 
 More documentation can be found on https://github.com/PredatH0r/ToxikkServerLauncher
@@ -427,12 +428,22 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         // delete existing files so only content of the workshop items listed in the .ini survives
         if (Directory.Exists(toxikkWorkshopDir))
           Directory.Delete(toxikkWorkshopDir, true);
-        foreach (var itemPath in Directory.GetDirectories(workshopFolder))
-          CopyFolder(itemPath, toxikkWorkshopDir);
       }
       catch (IOException ex)
       {
-        Console.Error.WriteLine("Failed to copy workshop item: " + ex.Message);
+        Console.Error.WriteLine("Failed to delete " + toxikkWorkshopDir + ": " + ex.Message);
+      }
+
+      foreach (var itemPath in Directory.GetDirectories(workshopFolder))
+      {
+        try
+        {
+          CopyFolder(itemPath, toxikkWorkshopDir);
+        }
+        catch (IOException ex)
+        {
+          Console.Error.WriteLine("Failed to copy workshop item " + itemPath + ": " + ex.Message);
+        }
       }
     }
     #endregion
@@ -500,7 +511,8 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       if (serverId == "0")
         this.dedicated = false;
 
-      Console.WriteLine("Starting " + (section.GetString("ServerName") ?? sectionName));
+      var name = section.GetString("@ServerName") ?? ProcessValueMacros("", section.GetString("ServerName"), globalVariables) ?? sectionName;
+      Console.WriteLine("Starting " + name);
       string map, options, cmdArgs;
       if (GenerateConfig(mainIni, section, out map, out options, out cmdArgs))
       {
@@ -666,6 +678,9 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     #region ProcessValueMacros()
     private string ProcessValueMacros(string targetConfigFolder, string value, Dictionary<string, string> variables)
     {
+      if (value == null)
+        return null;
+
       Match match;
 
       // replace @var-name@ with the variable value that was set with "@var-name@=..."
