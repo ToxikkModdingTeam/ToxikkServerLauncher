@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -11,6 +12,7 @@ namespace ToxikkServerLauncher
   class Launcher
   {
     private const string ServerSectionPrefix = "DedicatedServer";
+    private const string ClientSection = "Client";
     private string steamcmdExe;
     private string launcherFolder;
     private string toxikkFolder;
@@ -22,14 +24,22 @@ namespace ToxikkServerLauncher
     private bool dedicated = true;
     private bool showCommandLine;
     private bool pause;
-    private bool skipWorkshopUpdate;
-    private bool forceWorkshopUpdate;
+    private bool updateToxikk; // update TOXIKK through steamcmd
+    private bool cleanWorkshop; // purge steamcmd workshop
+    private bool updateWorkshop; // update steamcmd workshop items
+    private bool syncWorkshop; // copy steamcmd workshop folder to TOXIKK\Workshop
     private readonly string machineName = Environment.MachineName;
+
+    private static readonly Regex portRegex = new Regex(@"^@port,\s*(\d+),\s*(-?\d+)\s*$", RegexOptions.IgnoreCase);
+    private static readonly Regex skillClassRegex = new Regex(@"^@skillclass,\s*(\d+)\s*$", RegexOptions.IgnoreCase);
+    private static readonly Regex serverNumRegx = new Regex(@".*?(\d+)");
+    private static readonly Regex varNameRegex = new Regex(@"@([A-Za-z0-9_]+)@");
 
     /// <summary>
     /// Maps logical server setting names to real setting names (either ini-file\section\section specifier or a command line option name) as found in the [SimpleNames] section
     /// </summary>
-    private readonly Dictionary<string,string> keyMapping = new Dictionary<string, string>();
+    private readonly Dictionary<string,string> keyMapping = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
+    private readonly Dictionary<string,string> globalVariables = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
 
     #region Run()
     public void Run(string[] args)
@@ -52,9 +62,17 @@ namespace ToxikkServerLauncher
         serverIds = (Console.ReadLine() ?? "").Split(' ').ToList();
       }
 
-      // generate server config(s) and start the server(s)
-      foreach (var id in serverIds)
-        RunServerConfiguration(id);
+      if (serverIds[0] == "-h")
+        ShowHelp();
+      else
+      {
+        // generate server config(s) and start the server(s)
+        foreach (var id in serverIds)
+          RunServerConfiguration(id);
+      }
+
+      if (this.pause)
+        Console.ReadLine();
     }
     #endregion
 
@@ -72,6 +90,11 @@ namespace ToxikkServerLauncher
           string val = idx < 0 ? null : arg.Substring(idx + 1);
           switch (key.ToLower())
           {
+            case "help":
+            case "h":
+            case "?":
+              this.ShowHelp();
+              break;
             case "toxikkdir":
               this.toxikkFolder = val;
               break;
@@ -89,13 +112,22 @@ namespace ToxikkServerLauncher
             case "p":
               this.pause = true;
               break;
-            case "skipupdate":
-            case "s":
-              this.skipWorkshopUpdate = true;
+            case "updatetoxikk":
+            case "ut":
+              this.updateToxikk = true;
               break;
-            case "forceupdate":
-            case "f":
-              this.forceWorkshopUpdate = true;
+            case "cleanworkshop":
+            case "cw":
+              this.cleanWorkshop = true;
+              break;
+            case "updateworkshop":
+            case "uw":
+              this.updateWorkshop = true;
+              this.syncWorkshop = true;
+              break;
+            case "syncworkshop":
+            case "sw":
+              this.syncWorkshop = true;
               break;
           }
         }
@@ -108,9 +140,32 @@ namespace ToxikkServerLauncher
 
     #endregion
 
+    #region ShowHelp()
+    private void ShowHelp()
+    {
+      Console.WriteLine(@"
+ToxikkServerLauncher [option...] [server number...]
+Options (can start with '-' or '/'):
+  -help, -h, -?:        This help screen
+  -updateToxikk, -ut:   Update TOXIKK with steamcmd
+  -cleanWorkshop, -rw:  Delete content of the steamcmd workshop folder
+  -updateWorkshop, -uw: Update workshop items with steamcmd (implies -syncWorkshop)
+  -syncWorkshop, -sw:   Copy steamcmd workshop folders to TOXIKK\Workshop
+  -listen, -l:          Start a listen server instead of a dedicated server
+  -workshopdir=...      Override the directory from where the launcher will copy workshop content to the TOXIKK folder
+  -toxikkdir=...        Override the directory where the launcher will copy files to
+  -showcommand:         Print the generated TOXIKK.exe command line on screen before starting TOXIKK
+  -pause, -p:           Wait for Enter key to exit the launcher (used for debugging to prevent closing the window)
+
+More documentation can be found on https://github.com/PredatH0r/ToxikkServerLauncher
+");
+    }
+    #endregion
+
     #region ReadServerConfig()
     private void ReadServerConfig()
     {
+      // rename ServerConfig.ini template to MyServerConfig.ini to prevent overwriting the user config with an update of the launcher
       var myConfigFile = Path.Combine(launcherFolder, "MyServerConfig.ini");
       var configFile = Path.Combine(launcherFolder, "ServerConfig.ini");
       if (!File.Exists(myConfigFile))
@@ -118,7 +173,7 @@ namespace ToxikkServerLauncher
       configFile = myConfigFile;
       mainIni = new IniFile(configFile);
 
-      // import old server config file format if necessary
+      // import old TOXIKK server config file format if necessary
       if (!mainIni.Sections.Any(s => s.Name.StartsWith(ServerSectionPrefix)))
       {
         Console.WriteLine("No [" + ServerSectionPrefix + "...] sections found in ServerConfig.ini. Importing settings from ServerConfigList.ini ...");
@@ -146,19 +201,10 @@ namespace ToxikkServerLauncher
       if (section == null)
         return;
 
-      var toxikkDir = section.GetString("ToxikkDir");
-      if (toxikkDir != null && this.toxikkFolder == null)
-      {
-        var path = Path.Combine(toxikkDir, @"Binaries\win32\TOXIKK.exe");
-        if (File.Exists(path))
-          this.toxikkFolder = toxikkDir;
-      }
-
-      var workshopDir = section.GetString("WorkshopDir");
-      if (workshopDir != null && this.workshopFolder == null && Directory.Exists(workshopDir))
-        this.workshopFolder = workshopDir;
-
-      this.httpFolder = section.GetString("HttpRedirectDir");
+      this.updateToxikk |= section.GetBool("UpdateToxikk");
+      this.cleanWorkshop |= section.GetBool("CleanWorkshop");
+      this.updateWorkshop |= section.GetBool("UpdateWorkshop");
+      this.syncWorkshop |= section.GetBool("SyncWorkshop");
 
       var steamcmdDir = section.GetString("SteamcmdDir");
       if (steamcmdDir != null && this.steamcmdExe == null)
@@ -167,8 +213,30 @@ namespace ToxikkServerLauncher
         if (File.Exists(exe))
           this.steamcmdExe = exe;
       }
-    }
 
+      var workshopDir = section.GetString("WorkshopDir");
+      if (workshopDir != null && this.workshopFolder == null && Directory.Exists(workshopDir))
+        this.workshopFolder = workshopDir;
+
+      var toxikkDir = section.GetString("ToxikkDir");
+      if (toxikkDir != null && this.toxikkFolder == null)
+      {
+        var path = Path.Combine(toxikkDir, @"Binaries\win32\TOXIKK.exe");
+        if (File.Exists(path))
+          this.toxikkFolder = toxikkDir;
+      }
+
+      if (this.httpFolder == null)
+        this.httpFolder = section.GetString("HttpRedirectDir");
+
+
+      // parse @varname@=value lines
+      foreach (var key in section.Keys)
+      {
+        if (key.Length >= 3 && key.StartsWith("@") && key.EndsWith("@"))
+          ProcessVariableDefinition(this.globalVariables, key, ProcessValueMacros("", section.GetString(key), this.globalVariables));
+      }
+    }
     #endregion
 
     #region ConvertLegacyServerConfigListIni()
@@ -235,53 +303,64 @@ namespace ToxikkServerLauncher
     #region InitFolders()
     private bool InitFolders()
     {
-      toxikkFolder = toxikkFolder?.TrimEnd('\\', '/') ?? Path.Combine(launcherFolder, "..");
-      toxikkExe = Path.Combine(toxikkFolder, @"Binaries\win32\TOXIKK.exe");
-      if (!File.Exists(toxikkExe))
+      // ReSharper disable PossibleNullReferenceException
+      // ReSharper disable AssignNullToNotNullAttribute
+
+      if (this.toxikkFolder == null)
       {
-        Console.Error.WriteLine("Couldn't find TOXIKK.exe. Please configure the path in MyServerConfig.ini or copy+run the launcher from TOXIKK\\TOXIKKServers.");
+        if (File.Exists(Path.Combine(this.launcherFolder, @"..\Binaries\Win32\TOXIKK.exe")))
+          this.toxikkFolder = Path.Combine(this.launcherFolder, "..");
+        else if (this.steamcmdExe != null)
+          this.toxikkFolder = Path.Combine(Path.GetDirectoryName(this.steamcmdExe), @"steamapps\common\TOXIKK");
+      }
+      toxikkFolder = toxikkFolder?.TrimEnd('\\', '/');
+      toxikkExe = toxikkFolder == null ? null : Path.Combine(toxikkFolder, @"Binaries\win32\TOXIKK.exe");
+      if (toxikkExe == null || !File.Exists(toxikkExe))
+      {
+        Console.Error.WriteLine("Couldn't find TOXIKK.exe. Please configure ToxikkDir in MyServerConfig.ini or copy+run the launcher from TOXIKK\\TOXIKKServers.");
         return false;
       }
 
       configFolder = Path.Combine(toxikkFolder, @"UDKGame\Config");
 
-      if (workshopFolder == null)
+      if (this.workshopFolder == null)
       {
-        // ReSharper disable PossibleNullReferenceException
-        // ReSharper disable AssignNullToNotNullAttribute
-        workshopFolder = Path.GetDirectoryName(toxikkFolder);
-        while (Path.GetFileName(workshopFolder).ToLower() != "steamapps")
-          workshopFolder = Path.GetDirectoryName(workshopFolder);
-        workshopFolder = Path.Combine(workshopFolder, @"workshop\content\324810\");
-        // ReSharper restore PossibleNullReferenceException
-        // ReSharper restore AssignNullToNotNullAttribute
+        if (this.steamcmdExe != null)
+          this.workshopFolder = Path.Combine(Path.GetDirectoryName(this.steamcmdExe), @"steamapps\workshop\content\324810");
+        else if (this.toxikkFolder != null)
+          this.workshopFolder = Path.Combine(this.toxikkFolder, @"..\..\workshop\content\324810");
       }
 
-      if (httpFolder != null && !Directory.Exists(httpFolder))
+      // ReSharper restore PossibleNullReferenceException
+      // ReSharper restore AssignNullToNotNullAttribute
+
+      if (!string.IsNullOrEmpty(httpFolder) && !Directory.Exists(httpFolder))
         Directory.CreateDirectory(httpFolder);
-
-      if (!File.Exists(toxikkExe))
-      {
-        Console.Error.WriteLine("Could not find TOXIKK.exe.\n" +
-          @"Either copy this program to SteamApps\Common\TOXIKK\TOXIKKServers," +
-          "\nset ToxikkDir in ServerConfig.ini/[ServerLauncher]\n" +
-          "\nor use the /toxikkdir=... command line parameter");
-        return false;
-      }
 
       return true;
     }
-
     #endregion
 
     #region UpdateWorkshop()
     private void UpdateWorkshop()
     {
-      if (System.Diagnostics.Process.GetProcessesByName("toxikk").Length >= 1 && !this.forceWorkshopUpdate)
-        Console.WriteLine("TOXIKK.exe is already running, skipping workshop updates.");
-      else
+      if (this.cleanWorkshop)
       {
+        // delete the manifest file to make sure we really download
+        Console.WriteLine("Cleaning " + this.workshopFolder);
+        File.Delete(Path.Combine(this.workshopFolder, @"..\..\appworkshop_324810.acf"));
+        Directory.Delete(this.workshopFolder, true);
+      }
+
+      if (this.updateToxikk || this.updateWorkshop)
+      {
+        if (System.Diagnostics.Process.GetProcessesByName("toxikk").Length >= 1)
+          Console.Error.WriteLine("WARNING: TOXIKK.exe is already running, updates may fail.");
         DownloadWorkshopItems();
+      }
+
+      if (this.syncWorkshop)
+      {
         Console.WriteLine("Copying workshop item contents to TOXIKK and HTTP redirect folders...");
         CopyWorkshopContent();
       }
@@ -291,9 +370,6 @@ namespace ToxikkServerLauncher
     #region DownloadWorkshopItems()
     private void DownloadWorkshopItems()
     {
-      if (this.skipWorkshopUpdate)
-        return;
-
       if (this.steamcmdExe == null)
       {
         Console.WriteLine("Steamcmd not configured, skipping workshop updates.");
@@ -316,14 +392,15 @@ namespace ToxikkServerLauncher
         return;
       }
 
-      // delete the manifest file to make sure we really download
-      if (this.forceWorkshopUpdate)
-        File.Delete(Path.Combine(this.workshopFolder, @"..\..\appworkshop_324810.acf"));
-
       var sb = new StringBuilder();
-      sb.Append("+login ").Append(user).Append(" ").Append(pass).Append(" +app_update 324810");
-      foreach (var item in items)
-        sb.Append(" +workshop_download_item 324810 ").Append(item.Value);
+      sb.Append("+login ").Append(user).Append(" ").Append(pass);
+      if (this.updateToxikk)
+        sb.Append(" +force_install_dir \"").Append(this.toxikkFolder).Append("\" +app_update 324810");
+      if (this.updateWorkshop)
+      {
+        foreach (var item in items)
+          sb.Append(" +workshop_download_item 324810 ").Append(item.Value);
+      }
       sb.Append(" +quit");
 
       Console.WriteLine("Updating TOXIKK and Steam Workshop Items...\n");
@@ -341,14 +418,17 @@ namespace ToxikkServerLauncher
       if (!Directory.Exists(workshopFolder))
         return;
 
-      var toxikkDir = Path.Combine(this.toxikkFolder, @"UDKGame\Workshop");
+      if (this.httpFolder == null)
+        Console.Error.WriteLine("WARNING: no HTTP redirect folder configured. Clients won't be able to auto-download workshop items.");
+
+      var toxikkWorkshopDir = Path.Combine(this.toxikkFolder, @"UDKGame\Workshop");
       try
       {
         // delete existing files so only content of the workshop items listed in the .ini survives
-        if (Directory.Exists(toxikkDir))
-          Directory.Delete(toxikkDir, true);
+        if (Directory.Exists(toxikkWorkshopDir))
+          Directory.Delete(toxikkWorkshopDir, true);
         foreach (var itemPath in Directory.GetDirectories(workshopFolder))
-          CopyFolder(itemPath, toxikkDir);
+          CopyFolder(itemPath, toxikkWorkshopDir);
       }
       catch (IOException ex)
       {
@@ -387,12 +467,16 @@ namespace ToxikkServerLauncher
     #region ListConfigurations()
     private void ListConfigurations()
     {
+      Console.WriteLine("TOXIKK Server Launcher (use -h for help)");
       Console.WriteLine("Available server configurations:");
+      if (mainIni.GetSection(ClientSection) != null)
+        Console.WriteLine("  0: update base configuration and start client");
       foreach (var section in mainIni.Sections)
       {
         if (section.Name.StartsWith(ServerSectionPrefix) && !section.Name.Contains(":"))
         {
           var name = section.GetString("@ServerName") ?? section.GetString("ServerName");
+          name = ProcessValueMacros("", name, this.globalVariables);
           Console.WriteLine($"{section.Name.Substring(ServerSectionPrefix.Length),3}: {name}");
         }
       }
@@ -405,7 +489,7 @@ namespace ToxikkServerLauncher
       if (serverId.Trim() == "")
         return;
 
-      var sectionName = ServerSectionPrefix + serverId;
+      var sectionName = serverId == "0" ? ClientSection : ServerSectionPrefix + serverId;
       var section = mainIni.GetSection(sectionName);
       if (section == null)
       {
@@ -413,10 +497,18 @@ namespace ToxikkServerLauncher
         return;
       }
 
+      if (serverId == "0")
+        this.dedicated = false;
+
       Console.WriteLine("Starting " + (section.GetString("ServerName") ?? sectionName));
       string map, options, cmdArgs;
       if (GenerateConfig(mainIni, section, out map, out options, out cmdArgs))
-        LaunchServer(map, options, cmdArgs, sectionName);
+      {
+        if (serverId == "0")
+          Process.Start("steam://rungameid/324810");
+        else
+          LaunchServer(map, options, cmdArgs, sectionName);
+      }
     }
 
     #endregion
@@ -429,16 +521,18 @@ namespace ToxikkServerLauncher
 
       var destIniCache = new Dictionary<string, IniFile>();
       var optionDict = new SortedDictionary<string,string>(StringComparer.InvariantCultureIgnoreCase);
+      var variableDict = new Dictionary<string, string>(globalVariables, StringComparer.InvariantCultureIgnoreCase);
 
       // default command line args, can be modified with @cmdline =, +=, -=
       cmdArgs = dedicated ? "-configsubdir=" + section.Name + " -nohomedir -unattended" : "-log -nostartupmovies";
+      map = null;
 
       // recursive processing of a section and its @Import sections, then override any section with a machine-specific section
-      ProcessConfigSection(targetConfigFolder, "", iniFile, section, destIniCache, optionDict, ref cmdArgs);
-      ProcessConfigSection(targetConfigFolder, "", iniFile, iniFile.GetSection(section.Name + ":" + machineName), destIniCache, optionDict, ref cmdArgs);
+      ProcessConfigSection(targetConfigFolder, "", iniFile, section, destIniCache, optionDict, variableDict, ref cmdArgs);
+      ProcessConfigSection(targetConfigFolder, "", iniFile, iniFile.GetSection(section.Name + ":" + machineName), destIniCache, optionDict, variableDict, ref cmdArgs);
 
       // build URL with map name and options
-      if (!optionDict.TryGetValue("map", out map))
+      if (!section.Name.StartsWith(ClientSection) && !optionDict.TryGetValue("map", out map))
       {
         Console.Error.WriteLine("ERROR: No map specified");
         options = null;
@@ -489,15 +583,18 @@ namespace ToxikkServerLauncher
         FileCopy(file, Path.Combine(targetConfigFolder, fileName), true);
       }
 
-      // copy all *.ini files from Workshop/Config folder (but don't overwrite existing files)
-      var dir = Path.Combine(this.toxikkFolder, @"UDKGame\Workshop\Config");
-      if (Directory.Exists(dir))
+      if (this.dedicated)
       {
-        foreach (var file in Directory.GetFiles(dir, "*.ini"))
+        // copy all *.ini files from Workshop/Config folder (but don't overwrite existing files)
+        var dir = Path.Combine(this.toxikkFolder, @"UDKGame\Workshop\Config");
+        if (Directory.Exists(dir))
         {
-          var target = Path.Combine(targetConfigFolder, Path.GetFileName(file) ?? "");
-          if (!File.Exists(target))
-            FileCopy(file, target, false);
+          foreach (var file in Directory.GetFiles(dir, "*.ini"))
+          {
+            var target = Path.Combine(targetConfigFolder, Path.GetFileName(file) ?? "");
+            if (!File.Exists(target))
+              FileCopy(file, target, false);
+          }
         }
       }
     }
@@ -529,7 +626,8 @@ namespace ToxikkServerLauncher
     #endregion
 
     #region ProcessConfigSection()
-    private void ProcessConfigSection(string targetConfigFolder, string configSourceFolder, IniFile iniFile, IniFile.Section section, Dictionary<string, IniFile> destIniCache, SortedDictionary<string,string> options, ref string cmdArgs)
+    private void ProcessConfigSection(string targetConfigFolder, string configSourceFolder, IniFile iniFile, IniFile.Section section, 
+      Dictionary<string, IniFile> destIniCache, SortedDictionary<string,string> options, Dictionary<string, string> variables, ref string cmdArgs)
     {
       if (section == null)
         return;
@@ -540,21 +638,24 @@ namespace ToxikkServerLauncher
           var value = rawValue.Value;
           var operation = rawValue.Operator; // =, += or -=
 
-          value = ProcessValueMacros(targetConfigFolder, value);
+          value = ProcessValueMacros(targetConfigFolder, value, variables);
 
           string mappedKey;
           if (!keyMapping.TryGetValue(unmappedKey, out mappedKey))
             mappedKey = unmappedKey;
+          var lowerKey = mappedKey.ToLower();
 
           var configMapping = mappedKey.Split('\\');
           if (configMapping.Length == 3)
             ProcessIniSetting(targetConfigFolder, destIniCache, operation, configMapping, value);
-          else if (mappedKey.ToLower() == "@import")
-            ProcessImport(targetConfigFolder, configSourceFolder, iniFile, destIniCache, options, ref cmdArgs, value);
-          else if (mappedKey.ToLower() == "@copyfiles")
+          else if (lowerKey == "@import")
+            ProcessImport(targetConfigFolder, configSourceFolder, iniFile, destIniCache, options, variables, ref cmdArgs, value);
+          else if (lowerKey == "@copyfiles")
             ProcessCopyFile(targetConfigFolder, configSourceFolder, value);
-          else if (mappedKey.ToLower() == "@cmdline")
+          else if (lowerKey == "@cmdline")
             ProcessCommandLineArg(ref cmdArgs, operation, value);
+          else if (mappedKey.Length >= 3 && mappedKey.StartsWith("@") && mappedKey.EndsWith("@"))
+            ProcessVariableDefinition(variables, mappedKey, value);
           else if (!mappedKey.StartsWith("@"))
             ProcessUrlParameter(options, operation, mappedKey, value);
         }
@@ -563,23 +664,41 @@ namespace ToxikkServerLauncher
     #endregion
 
     #region ProcessValueMacros()
-    private static string ProcessValueMacros(string targetConfigFolder, string value)
+    private string ProcessValueMacros(string targetConfigFolder, string value, Dictionary<string, string> variables)
     {
-      var portRegex = new Regex(@"^@port,\s*(\d+),\s*(-?\d+)\s*$", RegexOptions.IgnoreCase);
-      var skillClassRegex = new Regex(@"^@skillclass,\s*(\d+)\s*$", RegexOptions.IgnoreCase);
-      var serverNumRegx = new Regex(@".*?(\d+)");
+      Match match;
 
-      // process @port,base,multiplier macro to auto-generate port numbers
+      // replace @var-name@ with the variable value that was set with "@var-name@=..."
+      var newVal = value;
+      for (match = varNameRegex.Match(value); match.Success; match = match.NextMatch())
+      {
+        var varName = match.Groups[0].Value;
+        string varValue;
+        if (!variables.TryGetValue(varName, out varValue))
+          varValue = "";
+        newVal = newVal.Replace(varName, varValue);
+      }
+      value = newVal;
+
+      // @port,base,multiplier macro to auto-generate port numbers
       var port = portRegex.Match(value);
       var serv = serverNumRegx.Match(targetConfigFolder);
       if (port.Success && serv.Success)
         return (int.Parse(port.Groups[1].Value) + int.Parse(port.Groups[2].Value)*(int.Parse(serv.Groups[1].Value) - 1)).ToString();
 
-      // @SkillClass
-      var match = skillClassRegex.Match(value);
+      // @SkillClass,skillclass-value
+      match = skillClassRegex.Match(value);
       if (match.Success)
         return (int.Parse(match.Groups[1].Value)/1.5f).ToString();
 
+      // @Env,environment-variable-name
+      if (value.StartsWith("@env,", StringComparison.InvariantCultureIgnoreCase))
+        return Environment.GetEnvironmentVariable(value.Substring(4).Trim()) ?? "";
+
+      // @Id
+      if (StringComparer.CurrentCultureIgnoreCase.Compare(value, "id") == 0)
+        return serv.Success ? serv.Groups[1].Value : "";
+        
       return value;
     }
 
@@ -592,7 +711,7 @@ namespace ToxikkServerLauncher
     private static void ProcessIniSetting(string targetConfigFolder, Dictionary<string, IniFile> destIniCache, string operation, string[] configMapping, string value)
     {
       IniFile destIni;
-      string destIniPath = targetConfigFolder + "\\" + configMapping[0];
+      string destIniPath = Path.Combine(targetConfigFolder, configMapping[0]);
       if (!destIniCache.TryGetValue(destIniPath, out destIni))
       {
         destIni = new IniFile(destIniPath);
@@ -613,7 +732,8 @@ namespace ToxikkServerLauncher
     /// <summary>
     /// recursively process settings from another section or file
     /// </summary>
-    private void ProcessImport(string targetConfigFolder, string configSourceFolder, IniFile iniFile, Dictionary<string, IniFile> destIniCache, SortedDictionary<string, string> options, ref string cmdArgs, string value)
+    private void ProcessImport(string targetConfigFolder, string configSourceFolder, IniFile iniFile, Dictionary<string, IniFile> destIniCache, 
+      SortedDictionary<string, string> options, Dictionary<string, string> variables, ref string cmdArgs, string value)
     {
       var regexImportFromOtherFile = new Regex(@"^(?:(.*)[/\\])?(\S+\.ini)(\\\S+)?$", RegexOptions.IgnoreCase);
 
@@ -631,8 +751,8 @@ namespace ToxikkServerLauncher
             Console.Error.WriteLine("WARNING: @import={0}: failed to locate {1}{2}{3}", value, subFolder, subFile, subSection);
           else
           {
-            ProcessConfigSection(targetConfigFolder, subFolder, subIni, sec, destIniCache, options, ref cmdArgs);
-            ProcessConfigSection(targetConfigFolder, subFolder, subIni, subIni.GetSection(subSection + ":" + machineName), destIniCache, options, ref cmdArgs);
+            ProcessConfigSection(targetConfigFolder, subFolder, subIni, sec, destIniCache, options, variables, ref cmdArgs);
+            ProcessConfigSection(targetConfigFolder, subFolder, subIni, subIni.GetSection(subSection + ":" + machineName), destIniCache, options, variables, ref cmdArgs);
           }
         }
         else // import section from same file
@@ -642,8 +762,8 @@ namespace ToxikkServerLauncher
             Console.Error.WriteLine("WARNING: @import={0}: failed to locate [{1}]", value, import);
           else
           {
-            ProcessConfigSection(targetConfigFolder, configSourceFolder, iniFile, sec, destIniCache, options, ref cmdArgs);
-            ProcessConfigSection(targetConfigFolder, configSourceFolder, iniFile, iniFile.GetSection(import + ":" + machineName), destIniCache, options, ref cmdArgs);
+            ProcessConfigSection(targetConfigFolder, configSourceFolder, iniFile, sec, destIniCache, options, variables, ref cmdArgs);
+            ProcessConfigSection(targetConfigFolder, configSourceFolder, iniFile, iniFile.GetSection(import + ":" + machineName), destIniCache, options, variables, ref cmdArgs);
           }
         }
       }
@@ -683,6 +803,13 @@ namespace ToxikkServerLauncher
         cmdArgs += " " + value;
       else if (operation == "-=")
         cmdArgs = cmdArgs.Replace(value, "").Replace("  ", " ").Trim();
+    }
+    #endregion
+
+    #region ProcessVariableDefinition()
+    private static void ProcessVariableDefinition(Dictionary<string, string> variables, string mappedKey, string value)
+    {
+      variables[mappedKey] = value;
     }
     #endregion
 
@@ -731,10 +858,8 @@ namespace ToxikkServerLauncher
         Console.WriteLine(toxikkExe + " " + args);
 
       Environment.CurrentDirectory = Path.GetDirectoryName(toxikkExe) ?? "";
-      System.Diagnostics.Process.Start(toxikkExe, args);
-
-      if (this.pause)
-        Console.ReadLine();
+      if (System.Diagnostics.Process.Start(toxikkExe, args) == null)
+        Console.Error.WriteLine("Couldn't start TOXIKK for " + sectionName);
     }
     #endregion
 
