@@ -19,6 +19,11 @@ namespace ToxikkServerLauncher
         Value = val;
         Operator = op;
       }
+
+      public override string ToString()
+      {
+        return Value;
+      }
     }
 
     #endregion
@@ -144,6 +149,13 @@ namespace ToxikkServerLauncher
       }
 
       #endregion
+
+      #region ToString()
+      public override string ToString()
+      {
+        return "[" + Name + "]";
+      }
+      #endregion
     }
     #endregion
 
@@ -257,6 +269,13 @@ namespace ToxikkServerLauncher
         sb.AppendLine();
       }
       File.WriteAllText(this.fileName, sb.ToString());
+    }
+    #endregion
+
+    #region ToString()
+    public override string ToString()
+    {
+      return FileName;
     }
     #endregion
   }

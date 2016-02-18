@@ -14,9 +14,9 @@ Main features:
 - variables and macros for the values of ini/option settings
 
 Special names recognized on the left hand side of an assignment:
-- @Import=\<source,...\> allows you to reuse common configuration parts. It can import other sections from the current file,
-or sections from other files, even in subdirectories. When using subdirectories, it also sets the source directory for files used with @CopyFiles.   
-- @CopyFiles=\<from:to,...\> copies (and renames) configuration files for specific servers (e.g. MyMapList_CC.ini =\> DefaultMapList.ini).   
+- @Import=sectionname,... allows you to reuse common configuration parts. It can import other sections from the current file,
+or sections from other files, even in subdirectories. When using subdirectories, it also sets the source directory for files used with @Copy.   
+- @Copy=file\[\>newname\],... copies (and renames) configuration files for specific servers (e.g. MyMapList_CC.ini\>DefaultMapList.ini).   
 - @CmdLine+=... adds startup parameters to the command line (-= can be used to remove default startup options).  
 - @ServerName=... sets the label for the server in the menu (to override the server's ServerName shown in the server browser)
 - @myVar@=... defines a variable "myVar" and assigns a value

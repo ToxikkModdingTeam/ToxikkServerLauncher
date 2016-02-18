@@ -338,6 +338,11 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       if (!string.IsNullOrEmpty(httpFolder) && !Directory.Exists(httpFolder))
         Directory.CreateDirectory(httpFolder);
 
+      // set some global variables which can be used inside @CopyFile statements
+      this.globalVariables.Add("@ToxikkDir@", this.toxikkFolder);
+      this.globalVariables.Add("@WorkshopDir@", this.workshopFolder);
+      this.globalVariables.Add("@HttpRedirectDir@", this.httpFolder);
+
       return true;
     }
     #endregion
@@ -350,12 +355,26 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         // delete the manifest file to make sure we really download
         Console.WriteLine("Cleaning " + this.workshopFolder);
         File.Delete(Path.Combine(this.workshopFolder, @"..\..\appworkshop_324810.acf"));
-        Directory.Delete(this.workshopFolder, true);
+
+        // delete all numeric folders (which can be reacquired from steam) but keep alphanumeric folders (with developer content)
+        foreach (var itemFolder in Directory.GetDirectories(this.workshopFolder))
+        {
+          long dummy;
+          if (long.TryParse(Path.GetFileName(itemFolder), out dummy))
+          {
+            try { Directory.Delete(itemFolder, true); }
+            catch (IOException ex) { Console.Error.WriteLine("ERROR: couldn't delete " + itemFolder + ": " + ex.Message); }
+          }
+          else
+          {
+            Console.WriteLine("INFO: keeping non-steam folder " + itemFolder);
+          }
+        }       
       }
 
       if (this.updateToxikk || this.updateWorkshop)
       {
-        if (System.Diagnostics.Process.GetProcessesByName("toxikk").Length >= 1)
+        if (Process.GetProcessesByName("toxikk").Length >= 1)
           Console.Error.WriteLine("WARNING: TOXIKK.exe is already running, updates may fail.");
         DownloadWorkshopItems();
       }
@@ -405,9 +424,9 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       sb.Append(" +quit");
 
       Console.WriteLine("Updating TOXIKK and Steam Workshop Items...\n");
-      var psi = new System.Diagnostics.ProcessStartInfo(this.steamcmdExe, sb.ToString());
+      var psi = new ProcessStartInfo(this.steamcmdExe, sb.ToString());
       psi.UseShellExecute = false;
-      var proc = System.Diagnostics.Process.Start(psi);
+      var proc = Process.Start(psi);
       proc?.WaitForExit();
       Console.WriteLine("\nSteam update complete.\n");
     }
@@ -434,11 +453,21 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         Console.Error.WriteLine("Failed to delete " + toxikkWorkshopDir + ": " + ex.Message);
       }
 
-      foreach (var itemPath in Directory.GetDirectories(workshopFolder))
+      foreach (var itemSetting in this.mainIni.GetSection("SteamWorkshop").GetAll("Item"))
       {
+        // remove trailing comment
+        var item = itemSetting.Value;
+        int idx = item.IndexOf(";");
+        if (idx >= 0)
+          item = item.Substring(0, idx).Trim();
+
+        var itemPath = Path.Combine(this.workshopFolder, item);
         try
         {
-          CopyFolder(itemPath, toxikkWorkshopDir);
+          if (Directory.Exists(itemPath))
+            CopyFolder(itemPath, toxikkWorkshopDir);
+          else
+            Console.Error.WriteLine("WARNING: Workshop item folder not found: " + itemPath);
         }
         catch (IOException ex)
         {
@@ -512,7 +541,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         this.dedicated = false;
 
       var name = section.GetString("@ServerName") ?? ProcessValueMacros("", section.GetString("ServerName"), globalVariables) ?? sectionName;
-      Console.WriteLine("Starting " + name);
+      Console.WriteLine("\nStarting " + name);
       string map, options, cmdArgs;
       if (GenerateConfig(mainIni, section, out map, out options, out cmdArgs))
       {
@@ -534,6 +563,8 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       var destIniCache = new Dictionary<string, IniFile>();
       var optionDict = new SortedDictionary<string,string>(StringComparer.InvariantCultureIgnoreCase);
       var variableDict = new Dictionary<string, string>(globalVariables, StringComparer.InvariantCultureIgnoreCase);
+      variableDict["@ConfigDir@"] = targetConfigFolder;
+
 
       // default command line args, can be modified with @cmdline =, +=, -=
       cmdArgs = dedicated ? "-configsubdir=" + section.Name + " -nohomedir -unattended" : "-log -nostartupmovies";
@@ -647,29 +678,35 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       {
         foreach (var rawValue in section.GetAll(unmappedKey))
         {
-          var value = rawValue.Value;
           var operation = rawValue.Operator; // =, += or -=
+          var value = ProcessValueMacros(targetConfigFolder, rawValue.Value, variables);
 
-          value = ProcessValueMacros(targetConfigFolder, value, variables);
+          if (unmappedKey.StartsWith("@"))
+          {
+            var lowerKey = unmappedKey.ToLower();
+            if (lowerKey == "@import")
+              ProcessImport(targetConfigFolder, configSourceFolder, iniFile, destIniCache, options, variables, ref cmdArgs, value);
+            else if (lowerKey == "@copy" || lowerKey == "@copyfiles") // @copyfiles is legacy name
+              ProcessCopyFile(targetConfigFolder, configSourceFolder, value);
+            else if (lowerKey == "@cmdline")
+              ProcessCommandLineArg(ref cmdArgs, operation, value);
+            else if (lowerKey.Length >= 3 && lowerKey.EndsWith("@"))
+              ProcessVariableDefinition(variables, lowerKey, value);
+            else
+              Console.Error.WriteLine("WARNING: ignoring unknown directive: " + unmappedKey + "=" + rawValue.Value);
+          }
+          else
+          {
+            string mappedKey;
+            if (!keyMapping.TryGetValue(unmappedKey, out mappedKey))
+              mappedKey = unmappedKey;
 
-          string mappedKey;
-          if (!keyMapping.TryGetValue(unmappedKey, out mappedKey))
-            mappedKey = unmappedKey;
-          var lowerKey = mappedKey.ToLower();
-
-          var configMapping = mappedKey.Split('\\');
-          if (configMapping.Length == 3)
-            ProcessIniSetting(targetConfigFolder, destIniCache, operation, configMapping, value);
-          else if (lowerKey == "@import")
-            ProcessImport(targetConfigFolder, configSourceFolder, iniFile, destIniCache, options, variables, ref cmdArgs, value);
-          else if (lowerKey == "@copyfiles")
-            ProcessCopyFile(targetConfigFolder, configSourceFolder, value);
-          else if (lowerKey == "@cmdline")
-            ProcessCommandLineArg(ref cmdArgs, operation, value);
-          else if (mappedKey.Length >= 3 && mappedKey.StartsWith("@") && mappedKey.EndsWith("@"))
-            ProcessVariableDefinition(variables, mappedKey, value);
-          else if (!mappedKey.StartsWith("@"))
-            ProcessUrlParameter(options, operation, mappedKey, value);
+            var configMapping = mappedKey.Split('\\');
+            if (configMapping.Length == 3)
+              ProcessIniSetting(targetConfigFolder, destIniCache, operation, configMapping, value);
+            else
+              ProcessUrlParameter(options, operation, mappedKey, value);
+          }
         }
       }
     }
@@ -795,15 +832,18 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       // source files can be placed in the ServerLauncher folder or the template config folder
       foreach (var fileInfo in value.Split(','))
       {
-        var names = fileInfo.Split('=', ':', '\\', '/'); // various separator chars to prevent exploits with absolute paths
-        if (names.Length == 2 && names[0] != "" && names[1] != "")
+        var sep = fileInfo.Contains('>') ? '>' : ':'; // ':' is legacy separator, which doesn't support absolute paths
+        var names = fileInfo.Split(new [] { sep }, 2); 
+        var sourceName = names[0].Trim();
+        var destName = names.Length == 2 ? names[1].Trim() : sourceName;
+        if (sourceName != "" && destName != "")
         {
-          var folder = File.Exists(Path.Combine(launcherFolder, configSourceFolder, names[0])) ? Path.Combine(launcherFolder, configSourceFolder) : configFolder;
-          var source = Path.Combine(folder, names[0]);
+          var folder = File.Exists(Path.Combine(launcherFolder, configSourceFolder, sourceName)) ? Path.Combine(launcherFolder, configSourceFolder) : configFolder;
+          var source = Path.Combine(folder, sourceName);
           if (File.Exists(source))
-            FileCopy(source, Path.Combine(targetConfigFolder, names[1]), true);
+            FileCopy(source, Path.Combine(targetConfigFolder, destName), true);
           else
-            Console.Error.WriteLine("WARNING: @copyfile source not found: " + names[0]);
+            Console.Error.WriteLine("WARNING: @copy source not found: " + sourceName);
         }
       }
     }
@@ -870,10 +910,10 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         args += " " + cmdArgs;
 
       if (this.showCommandLine)
-        Console.WriteLine(toxikkExe + " " + args);
+        Console.WriteLine("INFO: starting " + toxikkExe + " " + args);
 
       Environment.CurrentDirectory = Path.GetDirectoryName(toxikkExe) ?? "";
-      if (System.Diagnostics.Process.Start(toxikkExe, args) == null)
+      if (Process.Start(toxikkExe, args) == null)
         Console.Error.WriteLine("Couldn't start TOXIKK for " + sectionName);
     }
     #endregion
