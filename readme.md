@@ -9,7 +9,7 @@ Main features:
 - single centralized configuration file used to dynamically generate config folders and files for individual servers and machines.
 - builds the command line with server specific options needed to launch TOXIKK.exe as a dedicated server.
 - friendly settings names instead of the real INI or command line option names.
-- allows use of =, += and -= to set/add/remove a value for/to/from an .ini setting array, option URL parameter or the TOXIKK command line.
+- allows use of =, +=, *= and -= to set/append/prepend/remove a value for/to/from an .ini setting array, option URL parameter or the TOXIKK command line.
 - machine specific setting overrides by using sections like \[\<section\>:\<machine\>], so the same config file can be used on multiple machines.
 - variables and macros for the values of ini/option settings
 

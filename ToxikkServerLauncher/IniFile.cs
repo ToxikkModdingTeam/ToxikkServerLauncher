@@ -46,6 +46,13 @@ namespace ToxikkServerLauncher
       #region Add()
       internal void Add(string key, string value, string op = "=")
       {
+        this.Insert(key, value, data.Count, op);
+      }
+      #endregion
+
+      #region Insert()
+      internal void Insert(string key, string value, int index, string op = "=")
+      {
         List<Entry> list;
         if (!data.TryGetValue(key, out list))
         {
@@ -55,6 +62,7 @@ namespace ToxikkServerLauncher
         list.Add(new Entry(value, op));
       }
       #endregion
+
 
       #region Remove()
       internal void Remove(string key, string value)
@@ -228,7 +236,7 @@ namespace ToxikkServerLauncher
             if (idx <= 0)
               continue;
 
-            if (trimmedLine[idx - 1] == '+' || trimmedLine[idx - 1] == '-')
+            if ("+-*".IndexOf(trimmedLine[idx - 1]) >= 0)
             {
               op = trimmedLine[idx - 1] + "=";
               key = trimmedLine.Substring(0, idx - 1).Trim();

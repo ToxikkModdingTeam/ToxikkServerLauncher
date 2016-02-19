@@ -774,6 +774,8 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         destSec.Set(configMapping[2], value);
       else if (operation == "+=")
         destSec.Add(configMapping[2], value);
+      else if (operation == "*=")
+        destSec.Insert(configMapping[2], value, 0);
       else if (operation == "-=")
         destSec.Remove(configMapping[2], value);
     }
@@ -856,6 +858,8 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         cmdArgs = value;
       else if (operation == "+=")
         cmdArgs += " " + value;
+      else if (operation == "*=")
+        cmdArgs = value + " " + cmdArgs;
       else if (operation == "-=")
         cmdArgs = cmdArgs.Replace(value, "").Replace("  ", " ").Trim();
     }
@@ -877,6 +881,11 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       {
         string oldValue;
         options[mappedKey] = options.TryGetValue(mappedKey, out oldValue) ? oldValue + "," + value : value;
+      }
+      else if (operation == "*=")
+      {
+        string oldValue;
+        options[mappedKey] = options.TryGetValue(mappedKey, out oldValue) ? value + "," + oldValue : value;
       }
       else if (operation == "-=")
       {
