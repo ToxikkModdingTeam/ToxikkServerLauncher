@@ -27,7 +27,12 @@ Special values for the right hand side of an assignment:
 - @skillClass,X converts the value X used for Toxikk's skill classes to a value for UDK's Difficulty setting
 - @env,varname returns the value of the environment variable "varname"
 - @id returns the X of \[DedicatedServerX\] for the current server. The value is 0 when generating a base/client configuration.
- 
+
+Variables automatically defined by the launcher (useful for @copy instruction):
+- @ToxikkDir@: full path to the TOXIKK folder, either from the \[ServerLauncher\] configuration or auto-detection
+- @WorkshopDir@: value of \[ServerLauncher\] WorkshopDir. It's where steamcmd downloads the items to.
+- @HttpRedirectDir@: value of \[ServerLauncher\] HttpRedirctDir. It's where your HTTP server picks up the files for the HTTPRedirectUrl.
+- @ConfigDir@: set to ...\\TOXIKK\\UDKGame\\Config\\DedicatedServerX for the server configuration currently being generated.
 
 Setup
 -----
