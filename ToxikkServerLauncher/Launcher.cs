@@ -773,9 +773,15 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       if (operation == "=")
         destSec.Set(configMapping[2], value);
       else if (operation == "+=")
-        destSec.Add(configMapping[2], value);
+      {
+        if (destSec.GetAll(configMapping[2]).All(item => item.Value != value))
+          destSec.Add(configMapping[2], value);
+      }
       else if (operation == "*=")
-        destSec.Insert(configMapping[2], value, 0);
+      {
+        if (destSec.GetAll(configMapping[2]).All(item => item.Value != value))
+          destSec.Insert(configMapping[2], value, 0);
+      }
       else if (operation == "-=")
         destSec.Remove(configMapping[2], value);
     }
@@ -857,9 +863,15 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       if (operation == "=")
         cmdArgs = value;
       else if (operation == "+=")
-        cmdArgs += " " + value;
+      {
+        if (!cmdArgs.Contains(" " + value + " ") && !cmdArgs.EndsWith(" " + value))
+          cmdArgs += " " + value;
+      }
       else if (operation == "*=")
-        cmdArgs = value + " " + cmdArgs;
+      {
+        if (!cmdArgs.Contains(" " + value + " ") && !cmdArgs.EndsWith(" " + value))
+          cmdArgs = value + " " + cmdArgs;
+      }
       else if (operation == "-=")
         cmdArgs = cmdArgs.Replace(value, "").Replace("  ", " ").Trim();
     }
@@ -880,12 +892,14 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       else if (operation == "+=")
       {
         string oldValue;
-        options[mappedKey] = options.TryGetValue(mappedKey, out oldValue) ? oldValue + "," + value : value;
+        if (!options.TryGetValue(mappedKey, out oldValue) || (oldValue != value && !oldValue.Contains("," + value)))
+          options[mappedKey] = oldValue == null ? value : oldValue + "," + value;
       }
       else if (operation == "*=")
       {
         string oldValue;
-        options[mappedKey] = options.TryGetValue(mappedKey, out oldValue) ? value + "," + oldValue : value;
+        if (!options.TryGetValue(mappedKey, out oldValue) || (oldValue != value && !oldValue.Contains("," + value)))
+          options[mappedKey] = oldValue == null ? value : value + "," + oldValue;
       }
       else if (operation == "-=")
       {
