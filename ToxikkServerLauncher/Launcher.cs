@@ -419,7 +419,12 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       if (this.updateWorkshop)
       {
         foreach (var item in items)
-          sb.Append(" +workshop_download_item 324810 ").Append(item.Value);
+        {
+          long itemNr;
+          int idx = item.Value.IndexOf(";");
+          if (long.TryParse(idx < 0 ? item.Value : item.Value.Substring(0, idx), out itemNr))
+            sb.Append(" +workshop_download_item 324810 ").Append(itemNr);
+        }
       }
       sb.Append(" +quit");
 
@@ -838,12 +843,13 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     private void ProcessCopyFile(string targetConfigFolder, string configSourceFolder, string value)
     {
       // source files can be placed in the ServerLauncher folder or the template config folder
-      foreach (var fileInfo in value.Split(','))
+      foreach (var untrimmedFileInfo in value.Split(','))
       {
-        var sep = fileInfo.Contains('>') ? '>' : ':'; // ':' is legacy separator, which doesn't support absolute paths
-        var names = fileInfo.Split(new [] { sep }, 2); 
+        var fileInfo = untrimmedFileInfo.Trim();
+        int idx = fileInfo.Length > 2 ? fileInfo.IndexOf(':', 2) : -1; // ':' is used as source:target separator, but could also be a drive-letter separator
+        var names = idx <= 2 ? new[] { fileInfo } : new[] {fileInfo.Substring(0, idx), fileInfo.Substring(idx + 1)};
         var sourceName = names[0].Trim();
-        var destName = names.Length == 2 ? names[1].Trim() : sourceName;
+        var destName = names.Length == 2 ? names[1].Trim() : Path.IsPathRooted(sourceName) ? Path.GetFileName(sourceName) : sourceName;
         if (sourceName != "" && destName != "")
         {
           var folder = File.Exists(Path.Combine(launcherFolder, configSourceFolder, sourceName)) ? Path.Combine(launcherFolder, configSourceFolder) : configFolder;

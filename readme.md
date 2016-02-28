@@ -16,7 +16,7 @@ Main features:
 Special names recognized on the left hand side of an assignment:
 - @Import=sectionname,... allows you to reuse common configuration parts. It can import other sections from the current file,
 or sections from other files, even in subdirectories. When using subdirectories, it also sets the source directory for files used with @Copy.   
-- @Copy=file\[\>newname\],... copies (and renames) configuration files for specific servers (e.g. MyMapList_CC.ini\>DefaultMapList.ini).   
+- @Copy=file\[:newname\],... copies (and renames) configuration files for specific servers (e.g. MyMapList_CC.ini:DefaultMapList.ini).   
 - @CmdLine+=... adds startup parameters to the command line (-= can be used to remove default startup options).  
 - @ServerName=... sets the label for the server in the menu (to override the server's ServerName shown in the server browser)
 - @myVar@=... defines a variable "myVar" and assigns a value
@@ -28,9 +28,9 @@ Special values for the right hand side of an assignment:
 - @env,varname returns the value of the environment variable "varname"
 - @id returns the X of \[DedicatedServerX\] for the current server. The value is 0 when generating a base/client configuration.
 
-Variables automatically defined by the launcher (useful for @copy instruction):
+Variables automatically defined by the launcher (useful for @Copy instruction):
 - @ToxikkDir@: full path to the TOXIKK folder, either from the \[ServerLauncher\] configuration or auto-detection
-- @WorkshopDir@: value of \[ServerLauncher\] WorkshopDir. It's where steamcmd downloads the items to.
+- @WorkshopDir@: value of \[ServerLauncher\] WorkshopDir. It's where steamcmd downloads the TOXIKK items to (steamapps\\workshop\\content\\324810).
 - @HttpRedirectDir@: value of \[ServerLauncher\] HttpRedirctDir. It's where your HTTP server picks up the files for the HTTPRedirectUrl.
 - @ConfigDir@: set to ...\\TOXIKK\\UDKGame\\Config\\DedicatedServerX for the server configuration currently being generated.
 
