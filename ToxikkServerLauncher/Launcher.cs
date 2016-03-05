@@ -768,7 +768,8 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     private static void ProcessIniSetting(string targetConfigFolder, Dictionary<string, IniFile> destIniCache, string operation, string[] configMapping, string value)
     {
       IniFile destIni;
-      string destIniPath = Path.Combine(targetConfigFolder, configMapping[0]);
+      string iniFile = string.IsNullOrEmpty(Path.GetExtension(configMapping[0])) ? configMapping[0] + ".ini" : configMapping[0];
+      string destIniPath = Path.Combine(targetConfigFolder, iniFile);
       if (!destIniCache.TryGetValue(destIniPath, out destIni))
       {
         destIni = new IniFile(destIniPath);
