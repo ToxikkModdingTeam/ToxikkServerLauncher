@@ -9,7 +9,7 @@ Main features:
 - single centralized configuration file used to dynamically generate config folders and files for individual servers and machines.
 - builds the command line with server specific options needed to launch TOXIKK.exe as a dedicated server.
 - friendly settings names instead of the real INI or command line option names.
-- allows use of =, +=, *= and -= to set/append/prepend/remove a value for/to/from an .ini setting array, option URL parameter or the TOXIKK command line.
+- allows use of =, .=, +=, *= and -= to set/add/remove a value for/to/from an .ini setting array, option URL parameter or the TOXIKK command line.
 - machine specific setting overrides by using sections like \[\<section\>:\<machine\>], so the same config file can be used on multiple machines.
 - variables and macros for the values of ini/option settings
 
@@ -20,6 +20,13 @@ or sections from other files, even in subdirectories. When using subdirectories,
 - @CmdLine+=... adds startup parameters to the command line (-= can be used to remove default startup options).  
 - @ServerName=... sets the label for the server in the menu (to override the server's ServerName shown in the server browser)
 - @myVar@=... defines a variable "myVar" and assigns a value
+
+Assignment operators:
+= sets the setting to the right-hand-side of the assignment
+.= appends the RHS value to the setting, allowing duplicates
++= appends the RHS value to the setting, avoiding duplicates
+*= prepends the RHS value to the setting, avoiding duplicates
+-= removes the RHS value from the setting
 
 Special values for the right hand side of an assignment:
 - @myVar@ is expanded with the value assigned to @myVar@.
@@ -83,6 +90,11 @@ All other sections have no implicit meaning, but can be used with @Import=\<sect
 @Import works in the Client and DedicatedServerX sections and all sections imported from there.
 
 [Example ServerConfig.ini](ToxikkServerLauncher/ServerConfig.ini)
+
+Command line options
+--------------------
+Start the launcher with command line option -?, -h, -help or enter "help" on the server-id prompt to get the list of supported command line options.
+
 
 
 Compiling from source

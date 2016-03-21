@@ -11,6 +11,7 @@ namespace ToxikkServerLauncher
 {
   class Launcher
   {
+    private const string Version = "1.1";
     private const string ServerSectionPrefix = "DedicatedServer";
     private const string ClientSection = "Client";
     private string steamcmdExe;
@@ -22,6 +23,7 @@ namespace ToxikkServerLauncher
     private string toxikkExe;
     private IniFile mainIni;
     private bool dedicated = true;
+    private bool steamsockets = true;
     private bool showCommandLine;
     private bool pause;
     private bool updateToxikk; // update TOXIKK through steamcmd
@@ -44,6 +46,8 @@ namespace ToxikkServerLauncher
     #region Run()
     public void Run(string[] args)
     {
+      Console.WriteLine("ToxikkServerLauncher " + Version + ": https://github.com/ToxikkModdingTeam/ToxikkServerLauncher");
+
       launcherFolder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
 
       var serverIds = ParseCommandLine(args);
@@ -105,6 +109,10 @@ namespace ToxikkServerLauncher
             case "l":
               this.dedicated = false;
               break;
+            case "nosteamsockets":
+            case "nss":
+              this.steamsockets = false;
+              break;
             case "showcommand":
             case "sc":
               this.showCommandLine = true;
@@ -149,10 +157,11 @@ ToxikkServerLauncher [option...] [server number...]
 Options (can start with '-' or '/'):
   -help, -h, -?:        This help screen
   -updateToxikk, -ut:   Update TOXIKK with steamcmd
-  -cleanWorkshop, -rw:  Delete content of the steamcmd workshop folder
+  -cleanWorkshop, -cw:  Delete content of the steamcmd workshop folder
   -updateWorkshop, -uw: Update workshop items with steamcmd (implies -syncWorkshop)
   -syncWorkshop, -sw:   Copy steamcmd workshop folders to TOXIKK\Workshop
   -listen, -l:          Start a listen server instead of a dedicated server
+  -noSteamSockets, -ns: Don't append ?steamsockets to the launch URL
   -workshopdir=...      Override the directory from where the launcher will copy workshop content to the TOXIKK folder
   -toxikkdir=...        Override the directory where the launcher will copy files to
   -showcommand, -sc:    Print the generated TOXIKK.exe command line on screen before starting TOXIKK
@@ -372,11 +381,13 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         }       
       }
 
-      if (this.updateToxikk || this.updateWorkshop)
+      var workshopItemStatus = new Dictionary<string, bool>();
+      var downloadRequired = CheckWorkshopItemStatus(workshopItemStatus);
+      if (this.updateToxikk || this.updateWorkshop || downloadRequired)
       {
         if (Process.GetProcessesByName("toxikk").Length >= 1)
           Console.Error.WriteLine("WARNING: TOXIKK.exe is already running, updates may fail.");
-        DownloadWorkshopItems();
+        DownloadWorkshopItems(workshopItemStatus);
       }
 
       if (this.syncWorkshop)
@@ -387,12 +398,42 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     }
     #endregion
 
-    #region DownloadWorkshopItems()
-    private void DownloadWorkshopItems()
+    #region CheckWorkshopItemStatus()
+    private bool CheckWorkshopItemStatus(Dictionary<string, bool> itemStatus)
     {
+      bool requireDownload = false;
+      var sec = mainIni.GetSection("SteamWorkshop:" + machineName) ?? mainIni.GetSection("SteamWorkshop");
+      var items = sec.GetAll("Item");
+      foreach (var item in items)
+      {
+        long id;
+        int idx = item.Value.IndexOf(";");
+        string nameOrId = idx < 0 ? item.Value : item.Value.Substring(0, idx);
+        long.TryParse(nameOrId, out id);
+        var dir = Path.Combine(this.workshopFolder, nameOrId);
+        var dirExists = Directory.Exists(dir) && Directory.GetDirectories(dir).Length > 0;
+        var mustDownload = id != 0 && !dirExists;
+
+        //if (id == 0 && !dirExists)
+        //  Console.Error.WriteLine("WARNING: Missing workshop item: " + nameOrId);
+
+        itemStatus[item.Value] = mustDownload;
+        requireDownload |= mustDownload;
+      }
+
+      return requireDownload;
+    }
+    #endregion
+
+    #region DownloadWorkshopItems()
+    private void DownloadWorkshopItems(Dictionary<string, bool> items)
+    {
+      if (items.Count == 0)
+        return;
+
       if (this.steamcmdExe == null)
       {
-        Console.WriteLine("Steamcmd not configured, skipping workshop updates.");
+        Console.Error.WriteLine("WARNING: Steamcmd not configured, skipping workshop updates.");
         return;
       }
 
@@ -400,15 +441,11 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       if (sec == null)
         return;
 
-      var items = sec.GetAll("Item");
-      if (items.Count == 0)
-        return;
-
       var user = sec.GetString("User");
       var pass = sec.GetString("Password");
       if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(pass))
       {
-        Console.WriteLine("User/Password not configured in [SteamWorkshop], skipping workshop updates.");
+        Console.Error.WriteLine("WARNING: User/Password not configured in [SteamWorkshop], skipping workshop updates.");
         return;
       }
 
@@ -416,15 +453,10 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       sb.Append("+login ").Append(user).Append(" ").Append(pass);
       if (this.updateToxikk)
         sb.Append(" +force_install_dir \"").Append(this.toxikkFolder).Append("\" +app_update 324810");
-      if (this.updateWorkshop)
+      foreach (var item in items)
       {
-        foreach (var item in items)
-        {
-          long itemNr;
-          int idx = item.Value.IndexOf(";");
-          if (long.TryParse(idx < 0 ? item.Value : item.Value.Substring(0, idx), out itemNr))
-            sb.Append(" +workshop_download_item 324810 ").Append(itemNr);
-        }
+        if (this.updateWorkshop || item.Value)
+          sb.Append(" +workshop_download_item 324810 ").Append(item.Key);
       }
       sb.Append(" +quit");
 
@@ -778,6 +810,8 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       var destSec = destIni.GetSection(configMapping[1], true);
       if (operation == "=")
         destSec.Set(configMapping[2], value);
+      else if (operation == ".=")
+        destSec.Add(configMapping[2], value);
       else if (operation == "+=")
       {
         if (destSec.GetAll(configMapping[2]).All(item => item.Value != value))
@@ -934,7 +968,8 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
 
       args += options;
 
-      args += "?steamsockets";
+      if (steamsockets)
+        args += "?steamsockets";
 
       if (cmdArgs.Length > 0)
         args += " " + cmdArgs;
