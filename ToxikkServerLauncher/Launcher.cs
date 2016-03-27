@@ -11,7 +11,7 @@ namespace ToxikkServerLauncher
 {
   class Launcher
   {
-    private const string Version = "1.1.1";
+    private const string Version = "2.8";
     private const string ServerSectionPrefix = "DedicatedServer";
     private const string ClientSection = "Client";
     private string steamcmdExe;
