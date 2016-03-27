@@ -28,3 +28,6 @@ obj/
 _ReSharper*/
 [Tt]est[Rr]esult*
 ToxikkServerLauncher/MyServerConfig.ini
+ToxikkServerLauncher/MyClientConfig.ini
+ToxikkServerLauncher/UDKCharInfo.ini
+ToxikkServerLauncher/UDKCharInfo - Kopie.ini
