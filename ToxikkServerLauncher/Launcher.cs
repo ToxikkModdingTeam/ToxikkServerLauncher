@@ -11,7 +11,7 @@ namespace ToxikkServerLauncher
 {
   class Launcher
   {
-    private const string Version = "1.1";
+    private const string Version = "1.1.1";
     private const string ServerSectionPrefix = "DedicatedServer";
     private const string ClientSection = "Client";
     private string steamcmdExe;
@@ -845,10 +845,10 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
           var subFolder = match.Groups[1].Success ? Path.Combine(configSourceFolder, match.Groups[1].Value) : configSourceFolder;
           var subFile = match.Groups[2].Value;
           var subSection = match.Groups[3].Success ? match.Groups[3].Value.Substring(1) : Path.GetFileName(targetConfigFolder);
-          var subIni = new IniFile(Path.Combine(subFolder, subFile));
+          var subIni = new IniFile(Path.Combine(this.launcherFolder, subFolder, subFile));
           var sec = subIni.GetSection(subSection);
           if (sec == null)
-            Console.Error.WriteLine("WARNING: @import={0}: failed to locate {1}{2}{3}", value, subFolder, subFile, subSection);
+            Console.Error.WriteLine("WARNING: @import={0}: failed to locate {1}{2}\\{3}", value, subFolder, subFile, subSection);
           else
           {
             ProcessConfigSection(targetConfigFolder, subFolder, subIni, sec, destIniCache, options, variables, ref cmdArgs);
