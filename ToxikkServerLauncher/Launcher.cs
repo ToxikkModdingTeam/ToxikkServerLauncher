@@ -716,7 +716,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       {
         foreach (var rawValue in section.GetAll(unmappedKey))
         {
-          var loopInfo = GetLoopArguments(rawValue.Value, targetConfigFolder, variables);
+          var loopInfo = ProcessPermutationLoop(rawValue.Value, targetConfigFolder, variables);
           foreach (var loopArgs in loopInfo.PermutationValues)
           {
             // set variables for the current permutation
@@ -763,8 +763,8 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     }
     #endregion
 
-    #region GetLoopArguments()
-    private LoopInfo GetLoopArguments(string rawValue, string targetConfigFolder, Dictionary<string,string> variables)
+    #region ProcessPermutationLoop()
+    private LoopInfo ProcessPermutationLoop(string rawValue, string targetConfigFolder, Dictionary<string,string> variables)
     {
       // no @loop, return 1 static entry 
       if (!rawValue.ToLower().StartsWith("@loop "))
@@ -806,7 +806,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     #endregion
 
     #region ProcessValueMacros()
-    private string ProcessValueMacros(string targetConfigFolder, string value, Dictionary<string, string> variables, bool blankUndefinedVariables = true)
+    private string ProcessValueMacros(string targetConfigFolder, string value, Dictionary<string, string> variables, bool expandLoopVars = true)
     {
       if (value == null)
         return null;
@@ -818,9 +818,11 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       for (match = varNameRegex.Match(value); match.Success; match = match.NextMatch())
       {
         var varName = match.Groups[0].Value;
+        if (char.IsDigit(varName[1]) && !expandLoopVars)
+          continue;
         string varValue;
         if (!variables.TryGetValue(varName, out varValue))
-          varValue = blankUndefinedVariables ? "" : varName;
+          varValue = "";
         newVal = newVal.Replace(varName, varValue);
       }
       value = newVal;
