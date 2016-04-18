@@ -11,7 +11,7 @@ namespace ToxikkServerLauncher
 {
   class Launcher
   {
-    private const string Version = "2.8";
+    private const string Version = "2.9";
     private const string ServerSectionPrefix = "DedicatedServer";
     private const string ClientSection = "Client";
     private string steamcmdExe;
@@ -417,7 +417,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         //if (id == 0 && !dirExists)
         //  Console.Error.WriteLine("WARNING: Missing workshop item: " + nameOrId);
 
-        itemStatus[item.Value] = mustDownload;
+        itemStatus[nameOrId] = mustDownload;
         requireDownload |= mustDownload;
       }
 
@@ -455,7 +455,8 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         sb.Append(" +force_install_dir \"").Append(this.toxikkFolder).Append("\" +app_update 324810");
       foreach (var item in items)
       {
-        if (this.updateWorkshop || item.Value)
+        int id;
+        if ((this.updateWorkshop || item.Value) && int.TryParse(item.Key, out id))
           sb.Append(" +workshop_download_item 324810 ").Append(item.Key);
       }
       sb.Append(" +quit");
@@ -715,42 +716,97 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       {
         foreach (var rawValue in section.GetAll(unmappedKey))
         {
-          var operation = rawValue.Operator; // =, += or -=
-          var value = ProcessValueMacros(targetConfigFolder, rawValue.Value, variables);
-
-          if (unmappedKey.StartsWith("@"))
+          var loopInfo = GetLoopArguments(rawValue.Value, targetConfigFolder, variables);
+          foreach (var loopArgs in loopInfo.PermutationValues)
           {
-            var lowerKey = unmappedKey.ToLower();
-            if (lowerKey == "@import")
-              ProcessImport(targetConfigFolder, configSourceFolder, iniFile, destIniCache, options, variables, ref cmdArgs, value);
-            else if (lowerKey == "@copy" || lowerKey == "@copyfiles") // @copyfiles is legacy name
-              ProcessCopyFile(targetConfigFolder, configSourceFolder, value);
-            else if (lowerKey == "@cmdline")
-              ProcessCommandLineArg(ref cmdArgs, operation, value);
-            else if (lowerKey.Length >= 3 && lowerKey.EndsWith("@"))
-              ProcessVariableDefinition(variables, lowerKey, value);
-            else
-              Console.Error.WriteLine("WARNING: ignoring unknown directive: " + unmappedKey + "=" + rawValue.Value);
-          }
-          else
-          {
-            string mappedKey;
-            if (!keyMapping.TryGetValue(unmappedKey, out mappedKey))
-              mappedKey = unmappedKey;
+            // set variables for the current permutation
+            for (int i = 0; i < loopArgs.Count; i++)
+            {
+              variables["@" + (i + 1) + "@"] = loopArgs[i];
+              var parts = SplitUnquoted(loopArgs[i], '|');
+              for (int j = 0; j < parts.Length; j++)
+                variables["@" + (i + 1) + "_" + (j + 1) + "@"] = parts[j];
+            }
 
-            var configMapping = mappedKey.Split('\\');
-            if (configMapping.Length == 3)
-              ProcessIniSetting(targetConfigFolder, destIniCache, operation, configMapping, value);
+            var operation = rawValue.Operator; // =, += or -=
+            var value = ProcessValueMacros(targetConfigFolder, loopInfo.Template, variables);
+
+            if (unmappedKey.StartsWith("@"))
+            {
+              var lowerKey = unmappedKey.ToLower();
+              if (lowerKey == "@import")
+                ProcessImport(targetConfigFolder, configSourceFolder, iniFile, destIniCache, options, variables, ref cmdArgs, value);
+              else if (lowerKey == "@copy" || lowerKey == "@copyfiles") // @copyfiles is legacy name
+                ProcessCopyFile(targetConfigFolder, configSourceFolder, value);
+              else if (lowerKey == "@cmdline")
+                ProcessCommandLineArg(ref cmdArgs, operation, value);
+              else if (lowerKey.Length >= 3 && lowerKey.EndsWith("@"))
+                ProcessVariableDefinition(variables, lowerKey, value);
+              else
+                Console.Error.WriteLine("WARNING: ignoring unknown directive: " + unmappedKey + "=" + rawValue.Value);
+            }
             else
-              ProcessUrlParameter(options, operation, mappedKey, value);
+            {
+              string mappedKey;
+              if (!keyMapping.TryGetValue(unmappedKey, out mappedKey))
+                mappedKey = unmappedKey;
+
+              var configMapping = mappedKey.Split('\\');
+              if (configMapping.Length == 3)
+                ProcessIniSetting(targetConfigFolder, destIniCache, operation, configMapping, value);
+              else
+                ProcessUrlParameter(options, operation, mappedKey, value);
+            }
           }
         }
       }
     }
     #endregion
 
+    #region GetLoopArguments()
+    private LoopInfo GetLoopArguments(string rawValue, string targetConfigFolder, Dictionary<string,string> variables)
+    {
+      // no @loop, return 1 static entry 
+      if (!rawValue.ToLower().StartsWith("@loop "))
+        return new LoopInfo(rawValue);
+
+      rawValue = ProcessValueMacros(targetConfigFolder, rawValue, variables, false);
+
+      int end = rawValue.IndexOf("@", 1);
+      if (end < 0)
+      {
+        Console.Error.WriteLine("WARNING: bad @loop statement: " + rawValue);
+        return new LoopInfo();
+      }
+
+      var args = rawValue.Substring(6, end - 6);
+      var loops = SplitUnquoted(args, ':');
+      var permutationCount = 1;
+      List<string[]> loopVals = new List<string[]>(loops.Length);
+      foreach (var loop in loops)
+      {
+        var vals = SplitUnquoted(loop, ',');
+        loopVals.Add(vals);
+        permutationCount *= vals.Length;
+      }
+      var result = new List<List<string>>();
+      for (int i = 0; i < permutationCount; i++)
+      {
+        int j = i;
+        var combination = new List<string>(loops.Length);
+        for (int l = loops.Length - 1; l >= 0; l--)
+        {
+          combination.Insert(0, loopVals[l][j%loopVals[l].Length]);
+          j /= loopVals[l].Length;
+        }
+        result.Add(combination);
+      }
+      return new LoopInfo(rawValue.Substring(end+1), result);
+    }
+    #endregion
+
     #region ProcessValueMacros()
-    private string ProcessValueMacros(string targetConfigFolder, string value, Dictionary<string, string> variables)
+    private string ProcessValueMacros(string targetConfigFolder, string value, Dictionary<string, string> variables, bool blankUndefinedVariables = true)
     {
       if (value == null)
         return null;
@@ -764,7 +820,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         var varName = match.Groups[0].Value;
         string varValue;
         if (!variables.TryGetValue(varName, out varValue))
-          varValue = "";
+          varValue = blankUndefinedVariables ? "" : varName;
         newVal = newVal.Replace(varName, varValue);
       }
       value = newVal;
@@ -810,6 +866,8 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       var destSec = destIni.GetSection(configMapping[1], true);
       if (operation == "=")
         destSec.Set(configMapping[2], value);
+      else if (operation == ":=")
+        destSec.Remove(configMapping[2]);
       else if (operation == ".=")
         destSec.Add(configMapping[2], value);
       else if (operation == "+=")
@@ -983,5 +1041,52 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     }
     #endregion
 
+    #region SplitUnquoted()
+    private string[] SplitUnquoted(string input, char separator)
+    {
+      List<string> parts = new List<string>();
+      StringBuilder part = new StringBuilder();
+      bool inQuotes = false;
+      for (int i = 0, len = input.Length; i < len; i++)
+      {
+        var ch = input[i];
+        if (ch == '"')
+          inQuotes = !inQuotes;
+        if (ch == separator && !inQuotes)
+        {
+          parts.Add(part.ToString());
+          part.Clear();
+        }
+        else
+          part.Append(ch);
+      }
+      parts.Add(part.ToString());
+      return parts.ToArray();
+    }
+    #endregion
   }
+
+  #region class LoopInfo
+  class LoopInfo
+  {
+    public readonly string Template;
+    public readonly List<List<string>> PermutationValues;
+
+    public LoopInfo()
+    {      
+    }
+
+    public LoopInfo(string noLoopTemplate)
+    {
+      Template = noLoopTemplate;
+      PermutationValues = new List<List<string>> {new List<string>()};
+    }
+
+    public LoopInfo(string loopTemplate, List<List<string>> permutationValues)
+    {
+      Template = loopTemplate;
+      PermutationValues = permutationValues;
+    }
+  }
+  #endregion
 }

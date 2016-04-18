@@ -80,6 +80,11 @@ namespace ToxikkServerLauncher
           }
         }          
       }
+
+      internal void Remove(string key)
+      {
+        data.Remove(key);
+      }
       #endregion
 
       #region Set()
@@ -236,7 +241,7 @@ namespace ToxikkServerLauncher
             if (idx <= 0)
               continue;
 
-            if (".+-*".IndexOf(trimmedLine[idx - 1]) >= 0)
+            if (":.+-*".IndexOf(trimmedLine[idx - 1]) >= 0)
             {
               op = trimmedLine[idx - 1] + "=";
               key = trimmedLine.Substring(0, idx - 1).Trim();

@@ -22,7 +22,8 @@ or sections from other files, even in subdirectories. When using subdirectories,
 - @myVar@=... defines a variable "myVar" and assigns a value
 
 Assignment operators:
-= sets the setting to the right-hand-side of the assignment
+= sets the setting to the right-hand-side of the assignment (overwriting previously defined values)
+:= unsets the setting (useful to reset a list before adding values)
 .= appends the RHS value to the setting, allowing duplicates
 += appends the RHS value to the setting, avoiding duplicates
 *= prepends the RHS value to the setting, avoiding duplicates
@@ -34,12 +35,15 @@ Special values for the right hand side of an assignment:
 - @skillClass,X converts the value X used for Toxikk's skill classes to a value for UDK's Difficulty setting
 - @env,varname returns the value of the environment variable "varname"
 - @id returns the X of \[DedicatedServerX\] for the current server. The value is 0 when generating a base/client configuration.
+- @loop a1,a2,a3:b1,b2@value_with_placeholder_@1@_@2@  ... repeats the line for all permutations of (a1,a2,a3) x (b1,b2) x ...
 
 Variables automatically defined by the launcher (useful for @Copy instruction):
 - @ToxikkDir@: full path to the TOXIKK folder, either from the \[ServerLauncher\] configuration or auto-detection
 - @WorkshopDir@: value of \[ServerLauncher\] WorkshopDir. It's where steamcmd downloads the TOXIKK items to (steamapps\\workshop\\content\\324810).
 - @HttpRedirectDir@: value of \[ServerLauncher\] HttpRedirctDir. It's where your HTTP server picks up the files for the HTTPRedirectUrl.
 - @ConfigDir@: set to ...\\TOXIKK\\UDKGame\\Config\\DedicatedServerX for the server configuration currently being generated.
+- @1@, @2@, ...: current value(s) of the @loop permutation
+- @1_1@, @1_2@, ...: parts of @1@ separated by |
 
 Setup
 -----
