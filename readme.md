@@ -35,7 +35,9 @@ Special values for the right hand side of an assignment:
 - @skillClass,X converts the value X used for Toxikk's skill classes to a value for UDK's Difficulty setting
 - @env,varname returns the value of the environment variable "varname"
 - @id returns the X of \[DedicatedServerX\] for the current server. The value is 0 when generating a base/client configuration.
-- @loop a1,a2,a3:b1,b2@value_with_placeholder_@1@_@2@  ... repeats the line for all permutations of (a1,a2,a3) x (b1,b2) x ...
+- @loop {a1,a2,a3}{b1,b2}:line_with_placeholders  ... repeats the line for all permutations of (a1,a2,a3) x (b1,b2) x ...
+   Within the line_with_placeholders you can use @1@ to get the value of the 1st list. 
+   A list value can contain sub-values separated by '|'. You can use @1.1@ to get the 1st sub-value of @1@
 
 Variables automatically defined by the launcher (useful for @Copy instruction):
 - @ToxikkDir@: full path to the TOXIKK folder, either from the \[ServerLauncher\] configuration or auto-detection

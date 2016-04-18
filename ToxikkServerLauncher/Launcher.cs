@@ -764,6 +764,9 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     #endregion
 
     #region ProcessPermutationLoop()
+    /// <summary>
+    /// Create permutations of all lists in a @loop -or- when there is no @loop, return the value as-is
+    /// </summary>
     private LoopInfo ProcessPermutationLoop(string rawValue, string targetConfigFolder, Dictionary<string,string> variables)
     {
       // no @loop, return 1 static entry 
@@ -772,17 +775,16 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
 
       rawValue = ProcessValueMacros(targetConfigFolder, rawValue, variables, false);
 
-      int end = rawValue.IndexOf("@", 1);
-      if (end < 0)
+      int colon;
+      var loops = ExtractLoopList(rawValue, out colon);
+      if (loops.Count == 0)
       {
         Console.Error.WriteLine("WARNING: bad @loop statement: " + rawValue);
         return new LoopInfo();
       }
 
-      var args = rawValue.Substring(6, end - 6);
-      var loops = SplitUnquoted(args, ':');
       var permutationCount = 1;
-      List<string[]> loopVals = new List<string[]>(loops.Length);
+      List<string[]> loopVals = new List<string[]>(loops.Count);
       foreach (var loop in loops)
       {
         var vals = SplitUnquoted(loop, ',');
@@ -793,16 +795,48 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       for (int i = 0; i < permutationCount; i++)
       {
         int j = i;
-        var combination = new List<string>(loops.Length);
-        for (int l = loops.Length - 1; l >= 0; l--)
+        var combination = new List<string>(loops.Count);
+        for (int l = loops.Count - 1; l >= 0; l--)
         {
           combination.Insert(0, loopVals[l][j%loopVals[l].Length]);
           j /= loopVals[l].Length;
         }
         result.Add(combination);
       }
-      return new LoopInfo(rawValue.Substring(end+1), result);
+      return new LoopInfo(rawValue.Substring(colon+1), result);
     }
+
+    /// <summary>
+    /// Extract the text enclosed by {...} until we find a ':'
+    /// </summary>
+    private List<string> ExtractLoopList(string rawValue, out int colon)
+    {
+      List<string> loops = new List<string>();
+      colon = -1;
+      for (int i = 6, len = rawValue.Length; i < len;)
+      {
+        int open = rawValue.IndexOf('{', i);
+        colon = rawValue.IndexOf(':', i);
+        if (open >= 0 && open < colon)
+        {
+          int close = rawValue.IndexOf('}', open);
+          if (close < 0)
+          {
+            colon = -1;
+            break;
+          }
+          loops.Add(rawValue.Substring(open + 1, close - (open + 1)));
+          i = close + 1;
+        }
+        else if (colon >= 0 || open < 0)
+          break;
+      }
+
+      if (colon < 0)
+        loops.Clear();
+      return loops;
+    }
+
     #endregion
 
     #region ProcessValueMacros()
@@ -990,6 +1024,8 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     {
       if (operation == "=")
         options[mappedKey] = value;
+      else if (operation == ":=")
+        options.Remove(mappedKey);
       else if (operation == "+=")
       {
         string oldValue;
