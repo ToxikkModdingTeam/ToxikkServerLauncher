@@ -43,7 +43,7 @@ Variables automatically defined by the launcher (useful for @Copy instruction):
 - @HttpRedirectDir@: value of \[ServerLauncher\] HttpRedirctDir. It's where your HTTP server picks up the files for the HTTPRedirectUrl.
 - @ConfigDir@: set to ...\\TOXIKK\\UDKGame\\Config\\DedicatedServerX for the server configuration currently being generated.
 - @1@, @2@, ...: current value(s) of the @loop permutation
-- @1_1@, @1_2@, ...: parts of @1@ separated by |
+- @1.1@, @1.2@, ...: parts of @1@ separated by |
 
 Setup
 -----

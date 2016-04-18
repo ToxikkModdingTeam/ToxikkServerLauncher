@@ -35,7 +35,7 @@ namespace ToxikkServerLauncher
     private static readonly Regex portRegex = new Regex(@"^@port,\s*(\d+),\s*(-?\d+)\s*$", RegexOptions.IgnoreCase);
     private static readonly Regex skillClassRegex = new Regex(@"^@skillclass,\s*(\d+)\s*$", RegexOptions.IgnoreCase);
     private static readonly Regex serverNumRegx = new Regex(@".*?(\d+)");
-    private static readonly Regex varNameRegex = new Regex(@"@([A-Za-z0-9_]+)@");
+    private static readonly Regex varNameRegex = new Regex(@"@((?:[A-Za-z_][A-Za-z0-9_]+)|(?:\d+(?:\.\d+)?))@");
 
     /// <summary>
     /// Maps logical server setting names to real setting names (either ini-file\section\section specifier or a command line option name) as found in the [SimpleNames] section
@@ -725,7 +725,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
               variables["@" + (i + 1) + "@"] = loopArgs[i];
               var parts = SplitUnquoted(loopArgs[i], '|');
               for (int j = 0; j < parts.Length; j++)
-                variables["@" + (i + 1) + "_" + (j + 1) + "@"] = parts[j];
+                variables["@" + (i + 1) + "." + (j + 1) + "@"] = parts[j];
             }
 
             var operation = rawValue.Operator; // =, += or -=
