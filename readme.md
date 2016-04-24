@@ -38,6 +38,7 @@ Special values for the right hand side of an assignment:
 - @loop {a1,a2,a3}{b1,b2}:line_with_placeholders  ... repeats the line for all permutations of (a1,a2,a3) x (b1,b2) x ...
    Within the line_with_placeholders you can use @1@ to get the value of the 1st list. 
    A list value can contain sub-values separated by '|'. You can use @1.1@ to get the 1st sub-value of @1@
+   Enclose values with double quotes if they contain commas or '|'. The double quotes will be removed from @1@
 
 Variables automatically defined by the launcher (useful for @Copy instruction):
 - @ToxikkDir@: full path to the TOXIKK folder, either from the \[ServerLauncher\] configuration or auto-detection

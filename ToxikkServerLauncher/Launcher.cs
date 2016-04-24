@@ -11,7 +11,7 @@ namespace ToxikkServerLauncher
 {
   class Launcher
   {
-    private const string Version = "2.9";
+    private const string Version = "2.10";
     private const string ServerSectionPrefix = "DedicatedServer";
     private const string ClientSection = "Client";
     private string steamcmdExe;
@@ -716,10 +716,10 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       {
         foreach (var rawValue in section.GetAll(unmappedKey))
         {
-          var loopInfo = ProcessPermutationLoop(rawValue.Value, targetConfigFolder, variables);
-          foreach (var loopArgs in loopInfo.PermutationValues)
+          var loopInfo = ProcessCrossProductLoop(rawValue.Value, targetConfigFolder, variables);
+          foreach (var loopArgs in loopInfo.CombinationValues)
           {
-            // set variables for the current permutation
+            // set variables for the current combination
             for (int i = 0; i < loopArgs.Count; i++)
             {
               variables["@" + (i + 1) + "@"] = loopArgs[i];
@@ -763,11 +763,11 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     }
     #endregion
 
-    #region ProcessPermutationLoop()
+    #region ProcessCrossProductLoop()
     /// <summary>
-    /// Create permutations of all lists in a @loop -or- when there is no @loop, return the value as-is
+    /// Create combinations with the cross product of all lists in a @loop -or- when there is no @loop, return the value as-is
     /// </summary>
-    private LoopInfo ProcessPermutationLoop(string rawValue, string targetConfigFolder, Dictionary<string,string> variables)
+    private LoopInfo ProcessCrossProductLoop(string rawValue, string targetConfigFolder, Dictionary<string,string> variables)
     {
       // no @loop, return 1 static entry 
       if (!rawValue.ToLower().StartsWith("@loop "))
@@ -783,16 +783,16 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         return new LoopInfo();
       }
 
-      var permutationCount = 1;
+      var combinationCount = 1;
       List<string[]> loopVals = new List<string[]>(loops.Count);
       foreach (var loop in loops)
       {
         var vals = SplitUnquoted(loop, ',');
         loopVals.Add(vals);
-        permutationCount *= vals.Length;
+        combinationCount *= vals.Length;
       }
       var result = new List<List<string>>();
-      for (int i = 0; i < permutationCount; i++)
+      for (int i = 0; i < combinationCount; i++)
       {
         int j = i;
         var combination = new List<string>(loops.Count);
@@ -852,11 +852,17 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       for (match = varNameRegex.Match(value); match.Success; match = match.NextMatch())
       {
         var varName = match.Groups[0].Value;
-        if (char.IsDigit(varName[1]) && !expandLoopVars)
-          continue;
         string varValue;
         if (!variables.TryGetValue(varName, out varValue))
           varValue = "";
+
+        if (char.IsDigit(varName[1]))
+        {
+          if (!expandLoopVars)
+            continue;
+          varValue = varValue.Trim('"');
+        }
+
         newVal = newVal.Replace(varName, varValue);
       }
       value = newVal;
@@ -1108,7 +1114,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
   class LoopInfo
   {
     public readonly string Template;
-    public readonly List<List<string>> PermutationValues;
+    public readonly List<List<string>> CombinationValues;
 
     public LoopInfo()
     {      
@@ -1117,13 +1123,13 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     public LoopInfo(string noLoopTemplate)
     {
       Template = noLoopTemplate;
-      PermutationValues = new List<List<string>> {new List<string>()};
+      CombinationValues = new List<List<string>> {new List<string>()};
     }
 
-    public LoopInfo(string loopTemplate, List<List<string>> permutationValues)
+    public LoopInfo(string loopTemplate, List<List<string>> combinationValues)
     {
       Template = loopTemplate;
-      PermutationValues = permutationValues;
+      CombinationValues = combinationValues;
     }
   }
   #endregion
