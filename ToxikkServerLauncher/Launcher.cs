@@ -11,7 +11,7 @@ namespace ToxikkServerLauncher
 {
   class Launcher
   {
-    private const string Version = "2.10";
+    private const string Version = "2.11";
     private const string ServerSectionPrefix = "DedicatedServer";
     private const string ClientSection = "Client";
     private string steamcmdExe;
@@ -527,7 +527,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
           FileCopy(file, target, true);
 
         // copy files to HTTP redirect
-        if (httpFolder != null && ".udk.upk.u".Contains(Path.GetExtension(file)))
+        if (!string.IsNullOrEmpty(httpFolder) && ".udk.upk.u".Contains(Path.GetExtension(file)))
         {
           target = Path.Combine(httpFolder, Path.GetFileName(file));
           if (File.GetLastWriteTimeUtc(file) != File.GetLastWriteTimeUtc(target) || new FileInfo(file).Length != new FileInfo(target).Length)
@@ -742,6 +742,9 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
                 ProcessCommandLineArg(ref cmdArgs, operation, value);
               else if (lowerKey.Length >= 3 && lowerKey.EndsWith("@"))
                 ProcessVariableDefinition(variables, lowerKey, value);
+              else if (lowerKey == "@servername")
+              {
+              }
               else
                 Console.Error.WriteLine("WARNING: ignoring unknown directive: " + unmappedKey + "=" + rawValue.Value);
             }

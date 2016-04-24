@@ -179,7 +179,7 @@ namespace ToxikkServerLauncher
     #region ctor()
     public IniFile(string fileName)
     {
-      this.sectionDict = new Dictionary<string, Section>();
+      this.sectionDict = new Dictionary<string, Section>(StringComparer.InvariantCultureIgnoreCase);
       this.sectionList = new List<Section>();
       this.fileName = fileName;
       this.ReadIniFile();
