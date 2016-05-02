@@ -11,7 +11,7 @@ namespace ToxikkServerLauncher
 {
   class Launcher
   {
-    private const string Version = "2.11";
+    private const string Version = "2.12";
     private const string ServerSectionPrefix = "DedicatedServer";
     private const string ClientSection = "Client";
     private string steamcmdExe;
@@ -596,7 +596,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     private bool GenerateConfig(IniFile iniFile, IniFile.Section section, out string map, out string options, out string cmdArgs)
     {
       var targetConfigFolder = this.dedicated ? Path.Combine(configFolder, section.Name) : this.configFolder.TrimEnd('\\', '/');
-      CopyIniFilesToServerConfigFolder(targetConfigFolder);
+      CopyIniFilesToServerConfigFolder(targetConfigFolder, section);
 
       var destIniCache = new Dictionary<string, IniFile>();
       var optionDict = new SortedDictionary<string,string>(StringComparer.InvariantCultureIgnoreCase);
@@ -635,12 +635,13 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     #endregion
 
     #region CopyIniFilesToServerConfigFolder()
-    private void CopyIniFilesToServerConfigFolder(string targetConfigFolder)
+    private void CopyIniFilesToServerConfigFolder(string targetConfigFolder, IniFile.Section section)
     {
       if (this.dedicated)
       {
+        // delete all files from the target config folder, except those matching a @Keep=... pattern
         if (Directory.Exists(targetConfigFolder))
-          Directory.Delete(targetConfigFolder, true);
+          ClearDirectory(targetConfigFolder, GetFilesToKeep(section));
 
         // copy all Default*.ini files
         foreach (var file in Directory.GetFiles(configFolder, "Default*.ini"))
@@ -678,6 +679,58 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
           }
         }
       }
+    }
+    #endregion
+
+    #region GetFilesToKeep, ClearDirectory, KeepExistingFile
+
+    public List<Regex> GetFilesToKeep(IniFile.Section section)
+    {
+      List<Regex> list = new List<Regex>();
+
+      // convert file name globs like "My*.ini" to regular expressions
+
+      foreach (var keep in section.GetAll("@keep"))
+      {
+        foreach (var glob in SplitUnquoted(keep.Value, ','))
+        {
+          var pattern = "^" + Regex.Escape(glob).Replace(@"\*", ".*?").Replace(@"\?", ".") + "$";
+          list.Add(new Regex(pattern));
+        }
+      }
+      return list;
+    }
+
+    private bool ClearDirectory(string path, List<Regex> filesToKeep)
+    {
+      bool empty = true;
+      foreach (var dir in Directory.GetDirectories(path))
+      {
+        if (ClearDirectory(dir, filesToKeep))
+          Directory.Delete(dir);
+        else
+          empty = false;
+      }
+
+      foreach (var file in Directory.GetFiles(path))
+      {
+        if (KeepExistingFile(file, filesToKeep))
+          empty = false;
+        else
+          File.Delete(file);
+      }
+      return empty;
+    }
+
+    private bool KeepExistingFile(string file, List<Regex> filesToKeep)
+    {
+      file = Path.GetFileName(file) ?? "";
+      foreach (var regex in filesToKeep)
+      {
+        if (regex.IsMatch(file))
+          return true;
+      }
+      return false;
     }
     #endregion
 
@@ -742,7 +795,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
                 ProcessCommandLineArg(ref cmdArgs, operation, value);
               else if (lowerKey.Length >= 3 && lowerKey.EndsWith("@"))
                 ProcessVariableDefinition(variables, lowerKey, value);
-              else if (lowerKey == "@servername")
+              else if (lowerKey == "@servername" || lowerKey == "@keep")
               {
               }
               else
