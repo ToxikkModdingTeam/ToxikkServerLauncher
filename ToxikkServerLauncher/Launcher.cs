@@ -11,7 +11,7 @@ namespace ToxikkServerLauncher
 {
   class Launcher
   {
-    private const string Version = "2.12";
+    private const string Version = "2.13";
     private const string ServerSectionPrefix = "DedicatedServer";
     private const string ClientSection = "Client";
     private string steamcmdExe;
@@ -24,6 +24,7 @@ namespace ToxikkServerLauncher
     private IniFile mainIni;
     private bool dedicated = true;
     private bool steamsockets = true;
+    private bool seekfreeloading = true;
     private bool showCommandLine;
     private bool pause;
     private bool updateToxikk; // update TOXIKK through steamcmd
@@ -113,6 +114,10 @@ namespace ToxikkServerLauncher
             case "nss":
               this.steamsockets = false;
               break;
+            case "noseekfreeloading":
+            case "nsfl":
+              this.seekfreeloading = false;
+              break;
             case "showcommand":
             case "sc":
               this.showCommandLine = true;
@@ -162,6 +167,7 @@ Options (can start with '-' or '/'):
   -syncWorkshop, -sw:   Copy steamcmd workshop folders to TOXIKK\Workshop
   -listen, -l:          Start a listen server instead of a dedicated server
   -noSteamSockets, -ns: Don't append ?steamsockets to the launch URL
+  -noSeekFreeLoading, -nsfl: Don't append -seekfreeloading to the command line
   -workshopdir=...      Override the directory from where the launcher will copy workshop content to the TOXIKK folder
   -toxikkdir=...        Override the directory where the launcher will copy files to
   -showcommand, -sc:    Print the generated TOXIKK.exe command line on screen before starting TOXIKK
@@ -1128,6 +1134,9 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
 
       if (steamsockets)
         args += "?steamsockets";
+
+      if (this.seekfreeloading)
+        cmdArgs += " -seekfreeloading";
 
       if (cmdArgs.Length > 0)
         args += " " + cmdArgs;
