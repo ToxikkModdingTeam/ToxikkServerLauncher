@@ -11,7 +11,7 @@ namespace ToxikkServerLauncher
 {
   class Launcher
   {
-    private const string Version = "2.13";
+    private const string Version = "2.14";
     private const string ServerSectionPrefix = "DedicatedServer";
     private const string ClientSection = "Client";
     private string steamcmdExe;
@@ -35,7 +35,7 @@ namespace ToxikkServerLauncher
 
     private static readonly Regex portRegex = new Regex(@"^@port,\s*(\d+),\s*(-?\d+)\s*$", RegexOptions.IgnoreCase);
     private static readonly Regex skillClassRegex = new Regex(@"^@skillclass,\s*(\d+)\s*$", RegexOptions.IgnoreCase);
-    private static readonly Regex serverNumRegx = new Regex(@".*?(\d+)");
+    private static readonly Regex serverNumRegx = new Regex(@".*?\\" + ServerSectionPrefix + @"(\d+)");
     private static readonly Regex varNameRegex = new Regex(@"@((?:[A-Za-z_][A-Za-z0-9_]+)|(?:\d+(?:\.\d+)?))@");
 
     /// <summary>
@@ -47,7 +47,7 @@ namespace ToxikkServerLauncher
     #region Run()
     public void Run(string[] args)
     {
-      Console.WriteLine("ToxikkServerLauncher " + Version + ": https://github.com/ToxikkModdingTeam/ToxikkServerLauncher");
+      Console.WriteLine("ToxikkServerLauncher " + Version + "\nhttps://github.com/ToxikkModdingTeam/ToxikkServerLauncher");
 
       launcherFolder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
 
@@ -235,11 +235,13 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         this.workshopFolder = workshopDir;
 
       var toxikkDir = section.GetString("ToxikkDir");
-      if (toxikkDir != null && this.toxikkFolder == null)
+      if (!string.IsNullOrEmpty(toxikkDir) && this.toxikkFolder == null)
       {
         var path = Path.Combine(toxikkDir, @"Binaries\win32\TOXIKK.exe");
         if (File.Exists(path))
           this.toxikkFolder = toxikkDir;
+        else
+          Console.Error.WriteLine("WARNING: ignoring bad ToxikkDir in MyServerConfig.ini");
       }
 
       if (this.httpFolder == null)
