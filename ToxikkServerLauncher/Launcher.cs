@@ -11,7 +11,7 @@ namespace ToxikkServerLauncher
 {
   class Launcher
   {
-    private const string Version = "2.14";
+    private const string Version = "2.15";
     private const string ServerSectionPrefix = "DedicatedServer";
     private const string ClientSection = "Client";
     private string steamcmdExe;
@@ -31,7 +31,7 @@ namespace ToxikkServerLauncher
     private bool cleanWorkshop; // purge steamcmd workshop
     private bool updateWorkshop; // update steamcmd workshop items
     private bool syncWorkshop; // copy steamcmd workshop folder to TOXIKK\Workshop
-    private readonly string machineName = Environment.MachineName;
+    private string machineName = Environment.MachineName.ToLower();
 
     private static readonly Regex portRegex = new Regex(@"^@port,\s*(\d+),\s*(-?\d+)\s*$", RegexOptions.IgnoreCase);
     private static readonly Regex skillClassRegex = new Regex(@"^@skillclass,\s*(\d+)\s*$", RegexOptions.IgnoreCase);
@@ -203,6 +203,20 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       {
         foreach (var key in section.Keys)
           keyMapping[key] = section.GetString(key) ?? "";
+      }
+
+      // process [Hosts] section with mappings from physical host name(s) to logical host name
+      if ((section = mainIni.GetSection("Hosts")) != null)
+      {
+        foreach (var key in section.Keys)
+        {
+          var values = section.GetString(key).ToLower().Replace(" ", "").Split(',');
+          if (values.Contains(machineName))
+          {
+            machineName = key;
+            break;
+          }
+        }
       }
 
       // process launcher config (first found value wins)
@@ -409,27 +423,51 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     #region CheckWorkshopItemStatus()
     private bool CheckWorkshopItemStatus(Dictionary<string, bool> itemStatus)
     {
-      bool requireDownload = false;
-      var sec = mainIni.GetSection("SteamWorkshop:" + machineName) ?? mainIni.GetSection("SteamWorkshop");
-      var items = sec.GetAll("Item");
-      foreach (var item in items)
+      int requiredDownloads = 0;
+      foreach (var sec in new[] {mainIni.GetSection("SteamWorkshop"), mainIni.GetSection("SteamWorkshop:" + machineName)})
       {
-        long id;
-        int idx = item.Value.IndexOf(";");
-        string nameOrId = idx < 0 ? item.Value : item.Value.Substring(0, idx);
-        long.TryParse(nameOrId, out id);
-        var dir = Path.Combine(this.workshopFolder, nameOrId);
-        var dirExists = Directory.Exists(dir) && Directory.GetDirectories(dir).Length > 0;
-        var mustDownload = id != 0 && !dirExists;
+        if (sec == null)
+          continue;
 
-        //if (id == 0 && !dirExists)
-        //  Console.Error.WriteLine("WARNING: Missing workshop item: " + nameOrId);
+        var items = sec.GetAll("Item");
+        foreach (var item in items)
+        {
+          long id;
+          int idx = item.Value.IndexOf(";");
+          string nameOrId = idx < 0 ? item.Value : item.Value.Substring(0, idx);
+          long.TryParse(nameOrId, out id);
+          var dir = Path.Combine(this.workshopFolder, nameOrId);
 
-        itemStatus[nameOrId] = mustDownload;
-        requireDownload |= mustDownload;
+          if (item.Operator == ":=" || item.Operator == "!=")
+          {
+            requiredDownloads = 0;
+            itemStatus.Clear();
+            continue;
+          }
+
+          if (itemStatus.ContainsKey(nameOrId))
+          {
+            if (item.Operator == "-=")
+            {
+              if (itemStatus[nameOrId])
+                --requiredDownloads;
+              itemStatus.Remove(nameOrId);
+            }
+            continue;
+          }
+
+          var dirExists = Directory.Exists(dir) && Directory.GetDirectories(dir).Length > 0;
+          var mustDownload = id != 0 && !dirExists;
+
+          //if (id == 0 && !dirExists)
+          //  Console.Error.WriteLine("WARNING: Missing workshop item: " + nameOrId);
+
+          itemStatus[nameOrId] = mustDownload;
+          if (mustDownload)
+            ++requiredDownloads;
+        }
       }
-
-      return requireDownload;
+      return requiredDownloads > 0;
     }
     #endregion
 
@@ -585,6 +623,8 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
 
       if (serverId == "0")
         this.dedicated = false;
+
+      this.globalVariables["@id@"] = serverId;
 
       var name = section.GetString("@ServerName") ?? ProcessValueMacros("", section.GetString("ServerName"), globalVariables) ?? sectionName;
       Console.WriteLine("\nStarting " + name);
@@ -945,10 +985,6 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       // @Env,environment-variable-name
       if (value.StartsWith("@env,", StringComparison.InvariantCultureIgnoreCase))
         return Environment.GetEnvironmentVariable(value.Substring(4).Trim()) ?? "";
-
-      // @Id
-      if (StringComparer.CurrentCultureIgnoreCase.Compare(value, "id") == 0)
-        return serv.Success ? serv.Groups[1].Value : "";
         
       return value;
     }
@@ -972,7 +1008,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       var destSec = destIni.GetSection(configMapping[1], true);
       if (operation == "=")
         destSec.Set(configMapping[2], value);
-      else if (operation == ":=")
+      else if (operation == ":=" || operation == "!=")
         destSec.Remove(configMapping[2]);
       else if (operation == ".=")
         destSec.Add(configMapping[2], value);
@@ -1094,7 +1130,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     {
       if (operation == "=")
         options[mappedKey] = value;
-      else if (operation == ":=")
+      else if (operation == ":=" || operation == "!=")
         options.Remove(mappedKey);
       else if (operation == "+=")
       {
