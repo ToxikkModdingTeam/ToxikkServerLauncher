@@ -11,7 +11,7 @@ namespace ToxikkServerLauncher
 {
   class Launcher
   {
-    private const string Version = "2.15";
+    private const string Version = "2.16";
     private const string ServerSectionPrefix = "DedicatedServer";
     private const string ClientSection = "Client";
     private string steamcmdExe;
@@ -25,6 +25,7 @@ namespace ToxikkServerLauncher
     private bool dedicated = true;
     private bool steamsockets = true;
     private bool seekfreeloading = true;
+    private bool verbose = false;
     private bool showCommandLine;
     private bool pause;
     private bool updateToxikk; // update TOXIKK through steamcmd
@@ -143,6 +144,10 @@ namespace ToxikkServerLauncher
             case "sw":
               this.syncWorkshop = true;
               break;
+            case "verbose":
+            case "v":
+              this.verbose = true;
+              break;
           }
         }
         else
@@ -172,6 +177,7 @@ Options (can start with '-' or '/'):
   -toxikkdir=...        Override the directory where the launcher will copy files to
   -showcommand, -sc:    Print the generated TOXIKK.exe command line on screen before starting TOXIKK
   -pause, -p:           Wait for Enter key to exit the launcher (used for debugging to prevent closing the window)
+  -verbose, -v:         More log output
 
 More documentation can be found on https://github.com/PredatH0r/ToxikkServerLauncher
 ");
@@ -403,25 +409,32 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         }       
       }
 
-      var workshopItemStatus = new Dictionary<string, bool>();
-      var downloadRequired = CheckWorkshopItemStatus(workshopItemStatus);
+      var workshopItemStatusDict = new Dictionary<string, bool>();
+      var workshopItemStatusList = new List<string>();
+      var downloadRequired = CheckWorkshopItemStatus(workshopItemStatusDict, workshopItemStatusList);
       if (this.updateToxikk || this.updateWorkshop || downloadRequired)
       {
         if (Process.GetProcessesByName("toxikk").Length >= 1)
           Console.Error.WriteLine("WARNING: TOXIKK.exe is already running, updates may fail.");
-        DownloadWorkshopItems(workshopItemStatus);
+        DownloadWorkshopItems(workshopItemStatusDict);
       }
 
       if (this.syncWorkshop)
       {
         Console.WriteLine("Copying workshop item contents to TOXIKK and HTTP redirect folders...");
-        CopyWorkshopContent();
+        CopyWorkshopContent(workshopItemStatusList);
       }
     }
     #endregion
 
     #region CheckWorkshopItemStatus()
-    private bool CheckWorkshopItemStatus(Dictionary<string, bool> itemStatus)
+
+    /// <summary>
+    /// </summary>
+    /// <param name="itemStatus">will be filled with key=steam-workshop-id or name of the item, value=true if workshop download is needed</param>
+    /// <param name="itemList">will be filled with the item key in order of their appearance</param>
+    /// <returns></returns>
+    private bool CheckWorkshopItemStatus(Dictionary<string, bool> itemStatus, List<string> itemList)
     {
       int requiredDownloads = 0;
       foreach (var sec in new[] {mainIni.GetSection("SteamWorkshop"), mainIni.GetSection("SteamWorkshop:" + machineName)})
@@ -434,7 +447,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         {
           long id;
           int idx = item.Value.IndexOf(";");
-          string nameOrId = idx < 0 ? item.Value : item.Value.Substring(0, idx);
+          string nameOrId = (idx < 0 ? item.Value : item.Value.Substring(0, idx)).Trim();
           long.TryParse(nameOrId, out id);
           var dir = Path.Combine(this.workshopFolder, nameOrId);
 
@@ -442,6 +455,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
           {
             requiredDownloads = 0;
             itemStatus.Clear();
+            itemList.Clear();
             continue;
           }
 
@@ -452,6 +466,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
               if (itemStatus[nameOrId])
                 --requiredDownloads;
               itemStatus.Remove(nameOrId);
+              itemList.Remove(nameOrId);
             }
             continue;
           }
@@ -463,6 +478,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
           //  Console.Error.WriteLine("WARNING: Missing workshop item: " + nameOrId);
 
           itemStatus[nameOrId] = mustDownload;
+          itemList.Add(nameOrId);
           if (mustDownload)
             ++requiredDownloads;
         }
@@ -483,12 +499,11 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         return;
       }
 
-      var sec = mainIni.GetSection("SteamWorkshop:" + machineName) ?? mainIni.GetSection("SteamWorkshop");
-      if (sec == null)
-        return;
+      var sec1 = mainIni.GetSection("SteamWorkshop:" + machineName);
+      var sec2 = mainIni.GetSection("SteamWorkshop");
 
-      var user = sec.GetString("User");
-      var pass = sec.GetString("Password");
+      var user = sec1?.GetString("User") ?? sec2.GetString("User");
+      var pass = sec1?.GetString("Password") ?? sec2.GetString("Password");
       if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(pass))
       {
         Console.Error.WriteLine("WARNING: User/Password not configured in [SteamWorkshop], skipping workshop updates.");
@@ -517,7 +532,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     #endregion
 
     #region CopyWorkshopContent()
-    private void CopyWorkshopContent()
+    private void CopyWorkshopContent(ICollection<string> items)
     {
       if (!Directory.Exists(workshopFolder))
         return;
@@ -537,14 +552,8 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         Console.Error.WriteLine("Failed to delete " + toxikkWorkshopDir + ": " + ex.Message);
       }
 
-      foreach (var itemSetting in this.mainIni.GetSection("SteamWorkshop").GetAll("Item"))
+      foreach (var item in items)
       {
-        // remove trailing comment
-        var item = itemSetting.Value;
-        int idx = item.IndexOf(";");
-        if (idx >= 0)
-          item = item.Substring(0, idx).Trim();
-
         var itemPath = Path.Combine(this.workshopFolder, item);
         try
         {
@@ -564,6 +573,9 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     #region CopyFolder()
     private void CopyFolder(string sourceDir, string targetDir)
     {
+      if (verbose)
+        Console.WriteLine("Copying " + sourceDir + " => " + targetDir);
+
       // ReSharper disable AssignNullToNotNullAttribute
       foreach (var file in Directory.GetFiles(sourceDir))
       {
@@ -625,6 +637,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         this.dedicated = false;
 
       this.globalVariables["@id@"] = serverId;
+      this.globalVariables["@host@"] = machineName;
 
       var name = section.GetString("@ServerName") ?? ProcessValueMacros("", section.GetString("ServerName"), globalVariables) ?? sectionName;
       Console.WriteLine("\nStarting " + name);
