@@ -1,4 +1,4 @@
-ToxikkServerLaucher (2.15)
+ToxikkServerLaucher (2.16)
 ===
 
 This tool centralizes configurations for many server instances on multiple machines.

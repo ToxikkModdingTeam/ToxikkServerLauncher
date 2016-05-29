@@ -74,9 +74,13 @@
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PostBuildEvent>copy $(TargetPath) c:\steamcmd\steamapps\common\TOXIKK\TOXIKKServers
-copy $(ProjectDir)\..\readme.md $(TargetDir)
-copy $(ProjectDir)\MyServerConfig.ini c:\steamcmd\steamapps\common\TOXIKK\TOXIKKServers</PostBuildEvent>
+    <PostBuildEvent>copy $(ProjectDir)\..\readme.md $(TargetDir)
+copy $(TargetPath) c:\steamcmd\steamapps\common\TOXIKK\TOXIKKServers
+copy $(ProjectDir)\MyServerConfig.ini c:\steamcmd\steamapps\common\TOXIKK\TOXIKKServers
+
+copy $(TargetPath) d:\sources\ToxikkServerPack\ToxikkServerLauncher
+copy $(ProjectDir)\ServerConfig.ini d:\sources\ToxikkServerPack\ToxikkServerLauncher
+copy $(ProjectDir)\..\readme.md d:\sources\ToxikkServerPack\ToxikkServerLauncher</PostBuildEvent>
   </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
