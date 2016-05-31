@@ -172,6 +172,7 @@ namespace ToxikkServerLauncher
     }
     #endregion
 
+    private const string SpecialAssignmentOperators = "!:.+-*";
     private readonly Dictionary<string, Section> sectionDict;
     private readonly List<Section> sectionList;
     private readonly string fileName;
@@ -241,7 +242,7 @@ namespace ToxikkServerLauncher
             if (idx <= 0)
               continue;
 
-            if ("!:.+-*".IndexOf(trimmedLine[idx - 1]) >= 0)
+            if (SpecialAssignmentOperators.IndexOf(trimmedLine[idx - 1]) >= 0)
             {
               op = trimmedLine[idx - 1] + "=";
               key = trimmedLine.Substring(0, idx - 1).Trim();
