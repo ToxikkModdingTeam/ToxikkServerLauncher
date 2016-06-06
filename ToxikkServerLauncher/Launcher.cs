@@ -9,9 +9,9 @@ using System.Text.RegularExpressions;
 
 namespace ToxikkServerLauncher
 {
-  class Launcher
+  class Launcher : ILauncher
   {
-    private const string Version = "2.16";
+    private const string Version = "2.17";
     private const string ServerSectionPrefix = "DedicatedServer";
     private const string ClientSection = "Client";
     private string steamcmdExe;
@@ -25,7 +25,7 @@ namespace ToxikkServerLauncher
     private bool dedicated = true;
     private bool steamsockets = true;
     private bool seekfreeloading = true;
-    private bool verbose = false;
+    private bool verbose;
     private bool showCommandLine;
     private bool pause;
     private bool updateToxikk; // update TOXIKK through steamcmd
@@ -57,7 +57,8 @@ namespace ToxikkServerLauncher
       if (!InitFolders())
         return;
 
-      UpdateWorkshop();
+      var workshop = new Workshop(this);
+      workshop.UpdateWorkshop(this.updateWorkshop);
 
       // prompt for server IDs when none were specified on the command line
       if (serverIds.Count == 0)
@@ -68,12 +69,14 @@ namespace ToxikkServerLauncher
         serverIds = (Console.ReadLine() ?? "").Split(' ').ToList();
       }
 
-      if (serverIds[0] == "-h")
-        ShowHelp();
-      else
+      // execute commands and start server IDs
+      foreach (var id in serverIds)
       {
-        // generate server config(s) and start the server(s)
-        foreach (var id in serverIds)
+        if (id == "-h")
+          ShowHelp();
+        else if (id == "-uw")
+          workshop.UpdateWorkshop(true);
+        else if (!id.StartsWith("-"))
           RunServerConfiguration(id);
       }
 
@@ -384,194 +387,8 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     }
     #endregion
 
-    #region UpdateWorkshop()
-    private void UpdateWorkshop()
-    {
-      if (this.cleanWorkshop)
-      {
-        // delete the manifest file to make sure we really download
-        Console.WriteLine("Cleaning " + this.workshopFolder);
-        File.Delete(Path.Combine(this.workshopFolder, @"..\..\appworkshop_324810.acf"));
-
-        // delete all numeric folders (which can be reacquired from steam) but keep alphanumeric folders (with developer content)
-        foreach (var itemFolder in Directory.GetDirectories(this.workshopFolder))
-        {
-          long dummy;
-          if (long.TryParse(Path.GetFileName(itemFolder), out dummy))
-          {
-            try { Directory.Delete(itemFolder, true); }
-            catch (IOException ex) { Console.Error.WriteLine("ERROR: couldn't delete " + itemFolder + ": " + ex.Message); }
-          }
-          else
-          {
-            Console.WriteLine("INFO: keeping non-steam folder " + itemFolder);
-          }
-        }       
-      }
-
-      var workshopItemStatusDict = new Dictionary<string, bool>();
-      var workshopItemStatusList = new List<string>();
-      var downloadRequired = CheckWorkshopItemStatus(workshopItemStatusDict, workshopItemStatusList);
-      if (this.updateToxikk || this.updateWorkshop || downloadRequired)
-      {
-        if (Process.GetProcessesByName("toxikk").Length >= 1)
-          Console.Error.WriteLine("WARNING: TOXIKK.exe is already running, updates may fail.");
-        DownloadWorkshopItems(workshopItemStatusDict);
-      }
-
-      if (this.syncWorkshop)
-      {
-        Console.WriteLine("Copying workshop item contents to TOXIKK and HTTP redirect folders...");
-        CopyWorkshopContent(workshopItemStatusList);
-      }
-    }
-    #endregion
-
-    #region CheckWorkshopItemStatus()
-
-    /// <summary>
-    /// </summary>
-    /// <param name="itemStatus">will be filled with key=steam-workshop-id or name of the item, value=true if workshop download is needed</param>
-    /// <param name="itemList">will be filled with the item key in order of their appearance</param>
-    /// <returns></returns>
-    private bool CheckWorkshopItemStatus(Dictionary<string, bool> itemStatus, List<string> itemList)
-    {
-      int requiredDownloads = 0;
-      foreach (var sec in new[] {mainIni.GetSection("SteamWorkshop"), mainIni.GetSection("SteamWorkshop:" + machineName)})
-      {
-        if (sec == null)
-          continue;
-
-        var items = sec.GetAll("Item");
-        foreach (var item in items)
-        {
-          long id;
-          int idx = item.Value.IndexOf(";");
-          string nameOrId = (idx < 0 ? item.Value : item.Value.Substring(0, idx)).Trim();
-          long.TryParse(nameOrId, out id);
-          var dir = Path.Combine(this.workshopFolder, nameOrId);
-
-          if (item.Operator == ":=" || item.Operator == "!=")
-          {
-            requiredDownloads = 0;
-            itemStatus.Clear();
-            itemList.Clear();
-            continue;
-          }
-
-          if (itemStatus.ContainsKey(nameOrId))
-          {
-            if (item.Operator == "-=")
-            {
-              if (itemStatus[nameOrId])
-                --requiredDownloads;
-              itemStatus.Remove(nameOrId);
-              itemList.Remove(nameOrId);
-            }
-            continue;
-          }
-
-          var dirExists = Directory.Exists(dir) && Directory.GetDirectories(dir).Length > 0;
-          var mustDownload = id != 0 && !dirExists;
-
-          //if (id == 0 && !dirExists)
-          //  Console.Error.WriteLine("WARNING: Missing workshop item: " + nameOrId);
-
-          itemStatus[nameOrId] = mustDownload;
-          itemList.Add(nameOrId);
-          if (mustDownload)
-            ++requiredDownloads;
-        }
-      }
-      return requiredDownloads > 0;
-    }
-    #endregion
-
-    #region DownloadWorkshopItems()
-    private void DownloadWorkshopItems(Dictionary<string, bool> items)
-    {
-      if (items.Count == 0)
-        return;
-
-      if (this.steamcmdExe == null)
-      {
-        Console.Error.WriteLine("WARNING: Steamcmd not configured, skipping workshop updates.");
-        return;
-      }
-
-      var sec1 = mainIni.GetSection("SteamWorkshop:" + machineName);
-      var sec2 = mainIni.GetSection("SteamWorkshop");
-
-      var user = sec1?.GetString("User") ?? sec2.GetString("User");
-      var pass = sec1?.GetString("Password") ?? sec2.GetString("Password");
-      if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(pass))
-      {
-        Console.Error.WriteLine("WARNING: User/Password not configured in [SteamWorkshop], skipping workshop updates.");
-        return;
-      }
-
-      var sb = new StringBuilder();
-      sb.Append("+login ").Append(user).Append(" ").Append(pass);
-      if (this.updateToxikk)
-        sb.Append(" +force_install_dir \"").Append(this.toxikkFolder).Append("\" +app_update 324810");
-      foreach (var item in items)
-      {
-        int id;
-        if ((this.updateWorkshop || item.Value) && int.TryParse(item.Key, out id))
-          sb.Append(" +workshop_download_item 324810 ").Append(item.Key);
-      }
-      sb.Append(" +quit");
-
-      Console.WriteLine("Updating TOXIKK and Steam Workshop Items...\n");
-      var psi = new ProcessStartInfo(this.steamcmdExe, sb.ToString());
-      psi.UseShellExecute = false;
-      var proc = Process.Start(psi);
-      proc?.WaitForExit();
-      Console.WriteLine("\nSteam update complete.\n");
-    }
-    #endregion
-
-    #region CopyWorkshopContent()
-    private void CopyWorkshopContent(ICollection<string> items)
-    {
-      if (!Directory.Exists(workshopFolder))
-        return;
-
-      if (this.httpFolder == null)
-        Console.Error.WriteLine("WARNING: no HTTP redirect folder configured. Clients won't be able to auto-download workshop items.");
-
-      var toxikkWorkshopDir = Path.Combine(this.toxikkFolder, @"UDKGame\Workshop");
-      try
-      {
-        // delete existing files so only content of the workshop items listed in the .ini survives
-        if (Directory.Exists(toxikkWorkshopDir))
-          Directory.Delete(toxikkWorkshopDir, true);
-      }
-      catch (IOException ex)
-      {
-        Console.Error.WriteLine("Failed to delete " + toxikkWorkshopDir + ": " + ex.Message);
-      }
-
-      foreach (var item in items)
-      {
-        var itemPath = Path.Combine(this.workshopFolder, item);
-        try
-        {
-          if (Directory.Exists(itemPath))
-            CopyFolder(itemPath, toxikkWorkshopDir);
-          else
-            Console.Error.WriteLine("WARNING: Workshop item folder not found: " + itemPath);
-        }
-        catch (IOException ex)
-        {
-          Console.Error.WriteLine("Failed to copy workshop item " + itemPath + ": " + ex.Message);
-        }
-      }
-    }
-    #endregion
-
     #region CopyFolder()
-    private void CopyFolder(string sourceDir, string targetDir)
+    public void CopyFolder(string sourceDir, string targetDir)
     {
       if (verbose)
         Console.WriteLine("Copying " + sourceDir + " => " + targetDir);
@@ -1223,6 +1040,22 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       parts.Add(part.ToString());
       return parts.ToArray();
     }
+    #endregion
+
+    
+    #region ILauncher implementation
+
+    public string ToxikkFolder => this.toxikkFolder;
+    public string WorkshopFolder => this.workshopFolder;
+    public string HttpFolder => this.httpFolder;
+    public string SteamcmdExe => this.steamcmdExe;
+    public bool UpdateToxikk => this.updateToxikk;
+    public bool CleanWorkshop => this.cleanWorkshop;
+    public bool UpdateWorkshop => this.updateWorkshop;
+    public bool SyncWorkshop => this.syncWorkshop;
+    public IniFile MainIni => this.mainIni;
+    public string MachineName => this.machineName;
+
     #endregion
   }
 
