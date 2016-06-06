@@ -221,6 +221,20 @@ namespace ToxikkServerLauncher
         {
           zip.ExtractZip(file, dir, FastZip.Overwrite.Always, null, null, null, true);
           File.Delete(file);
+
+          // if extracting the zip created paths like 324810\MyItem\MyItem\Content, move the subfolders one level up
+          var dirItems = Directory.GetFileSystemEntries(dir);
+          if (dirItems.Length == 1 && Directory.Exists(Path.Combine(dir, item.FolderName)))
+          {
+            foreach (var subDir in Directory.GetFileSystemEntries(dirItems[0]))
+            {
+              if (Directory.Exists(subDir))
+                Directory.Move(subDir, Path.Combine(dir, Path.GetFileName(subDir)));
+              else
+                File.Move(subDir, Path.Combine(dir, Path.GetFileName(subDir)));
+            }
+            Directory.Delete(dirItems[0]);
+          }
         }
         catch (Exception ex)
         {
