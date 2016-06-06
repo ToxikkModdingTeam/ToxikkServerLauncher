@@ -81,6 +81,7 @@
   <PropertyGroup>
     <PostBuildEvent>copy $(ProjectDir)\..\readme.md $(TargetDir)
 copy $(TargetPath) c:\steamcmd\steamapps\common\TOXIKK\TOXIKKServers
+copy $(TargetDir)\*.dll c:\steamcmd\steamapps\common\TOXIKK\TOXIKKServers
 copy $(ProjectDir)\MyServerConfig.ini c:\steamcmd\steamapps\common\TOXIKK\TOXIKKServers
 
 copy $(TargetPath) d:\sources\ToxikkServerPack\ToxikkServerLauncher
