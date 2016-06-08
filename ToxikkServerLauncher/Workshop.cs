@@ -183,23 +183,24 @@ namespace ToxikkServerLauncher
     private void DownloadZipItems(List<ItemStatus> items)
     {
       CountdownEvent countdown = new CountdownEvent(1);
-      using (var cli = new WebClient())
+      foreach (var item in items)
       {
+        var cli = new WebClient();
         cli.DownloadFileCompleted += OnDownloadZipItemCompleted;
-        foreach (var item in items)
-        {
-          if (!item.RequireDownload || string.IsNullOrEmpty(item.ZipUrl))
-            continue;
 
-          Console.WriteLine("Downloading " + item.ZipUrl + " ...");
-          countdown.AddCount(1);
-          var file = Path.Combine(launcher.WorkshopFolder, item.FolderName + ".zip");
-          File.Delete(file);
-          cli.DownloadFileAsync(new Uri(item.ZipUrl), file, new Tuple<string, ItemStatus, CountdownEvent>(file, item, countdown));
-        }
-        countdown.Signal();
-        countdown.Wait();
+
+        if (!item.RequireDownload || string.IsNullOrEmpty(item.ZipUrl))
+          continue;
+
+        Console.WriteLine("Downloading " + item.ZipUrl + " ...");
+        countdown.AddCount(1);
+        var file = Path.Combine(launcher.WorkshopFolder, item.FolderName + ".zip");
+        File.Delete(file);
+        cli.DownloadFileAsync(new Uri(item.ZipUrl), file, new Tuple<string, ItemStatus, CountdownEvent>(file, item, countdown));
       }
+      countdown.Signal();
+      countdown.Wait();
+
     }
     #endregion
 
@@ -242,6 +243,7 @@ namespace ToxikkServerLauncher
         }
       }
       countdown.Signal();
+      ((WebClient)sender).Dispose();
     }
     #endregion
 
