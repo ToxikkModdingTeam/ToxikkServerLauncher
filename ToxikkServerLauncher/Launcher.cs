@@ -11,7 +11,7 @@ namespace ToxikkServerLauncher
 {
   class Launcher : ILauncher
   {
-    private const string Version = "2.17";
+    private const string Version = "2.18";
     private const string ServerSectionPrefix = "DedicatedServer";
     private const string ClientSection = "Client";
     private string steamcmdExe;
@@ -32,6 +32,7 @@ namespace ToxikkServerLauncher
     private bool cleanWorkshop; // purge steamcmd workshop
     private bool updateWorkshop; // update steamcmd workshop items
     private bool syncWorkshop; // copy steamcmd workshop folder to TOXIKK\Workshop
+    private bool focusConsoleWindow; // instead of starting a server, bring its window on top
     private string machineName = Environment.MachineName.ToLower();
 
     private static readonly Regex portRegex = new Regex(@"^@port,\s*(\d+),\s*(-?\d+)\s*$", RegexOptions.IgnoreCase);
@@ -58,14 +59,15 @@ namespace ToxikkServerLauncher
         return;
 
       var workshop = new Workshop(this);
-      workshop.UpdateWorkshop(this.updateWorkshop);
+      if (!focusConsoleWindow)
+        workshop.UpdateWorkshop(this.updateWorkshop);
 
       // prompt for server IDs when none were specified on the command line
       if (serverIds.Count == 0)
       {
         Console.WriteLine();
         ListConfigurations();
-        Console.Write("Start server(s): ");
+        Console.Write((focusConsoleWindow ? "Start" : "Focus") + " server(s): ");
         serverIds = (Console.ReadLine() ?? "").Split(' ').ToList();
       }
 
@@ -74,15 +76,54 @@ namespace ToxikkServerLauncher
       {
         if (id == "-h")
           ShowHelp();
+        else if (id == "-f")
+          focusConsoleWindow = true;
         else if (id == "-uw")
           workshop.UpdateWorkshop(true);
         else if (!id.StartsWith("-"))
-          RunServerConfiguration(id);
+        {
+          if (focusConsoleWindow)
+            FocusServerConsole(id);
+          else
+            RunServerConfiguration(id);
+        }
       }
 
       if (this.pause)
         Console.ReadLine();
     }
+    #endregion
+
+    #region FocusServerConsole()
+    private void FocusServerConsole(string id)
+    {
+      var pidFile = Path.Combine(this.configFolder, ServerSectionPrefix + id, "toxikk.pid");
+      if (!File.Exists(pidFile))
+        Console.Error.WriteLine("No toxikk.pid file for this server");
+      else
+      {
+        var txt = File.ReadAllText(pidFile);
+        int pid;
+        if (int.TryParse(txt, out pid))
+        {
+          try
+          {
+            var proc = Process.GetProcessById(pid);
+            var hWnd = proc.MainWindowHandle;
+            Win32.ShowWindow(hWnd, Win32.SW_SHOWNORMAL);
+            Win32.SetForegroundWindow(hWnd);
+            Win32.SetCapture(hWnd);
+            Win32.SetFocus(hWnd);
+            Win32.SetActiveWindow(hWnd);
+          }
+          catch (ArgumentException)
+          {
+            Console.Error.WriteLine($"Server with PID {txt} is not running.");
+          }
+        }
+      }
+    }
+
     #endregion
 
     #region ParseCommandLine()
@@ -109,6 +150,10 @@ namespace ToxikkServerLauncher
               break;
             case "workshopdir":
               this.workshopFolder = val;
+              break;
+            case "focus":
+            case "f":
+              this.focusConsoleWindow = true;
               break;
             case "listen":
             case "l":
@@ -181,6 +226,7 @@ Options (can start with '-' or '/'):
   -showcommand, -sc:    Print the generated TOXIKK.exe command line on screen before starting TOXIKK
   -pause, -p:           Wait for Enter key to exit the launcher (used for debugging to prevent closing the window)
   -verbose, -v:         More log output
+  -focus, -f:           Focus the console window of an already running server
 
 More documentation can be found on https://github.com/PredatH0r/ToxikkServerLauncher
 ");
@@ -1013,8 +1059,14 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         Console.WriteLine("INFO: starting " + toxikkExe + " " + args);
 
       Environment.CurrentDirectory = Path.GetDirectoryName(toxikkExe) ?? "";
-      if (Process.Start(toxikkExe, args) == null)
+      var proc = Process.Start(toxikkExe, args);
+      if (proc == null)
         Console.Error.WriteLine("Couldn't start TOXIKK for " + sectionName);
+      else
+      {
+        var pidFile = Path.Combine(configFolder, sectionName, "toxikk.pid");
+        File.WriteAllText(pidFile, proc.Id.ToString());
+      }
     }
     #endregion
 
