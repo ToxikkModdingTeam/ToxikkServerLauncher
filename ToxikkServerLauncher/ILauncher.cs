@@ -11,6 +11,7 @@
     bool SyncWorkshop { get; }
     IniFile MainIni { get; }
     string MachineName { get; }
+    bool ServerProcessesRunning { get; }
 
     void CopyFolder(string sourceDir, string targetDir);
   }

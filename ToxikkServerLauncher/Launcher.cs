@@ -4,16 +4,23 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 
 namespace ToxikkServerLauncher
 {
   class Launcher : ILauncher
   {
-    private const string Version = "2.18";
+    private const string Version = "2.19";
     private const string ServerSectionPrefix = "DedicatedServer";
     private const string ClientSection = "Client";
+
+    [Flags]
+    private enum ServerAction { Start = 0x01, Stop = 0x02, Restart = 0x03, Focus=0x04 }
+    private static readonly string[] ActionVerbs = { "", "Start", "Stop", "Restart", "Focus" };
+
     private string steamcmdExe;
     private string launcherFolder;
     private string toxikkFolder;
@@ -27,13 +34,14 @@ namespace ToxikkServerLauncher
     private bool seekfreeloading = true;
     private bool verbose;
     private bool showCommandLine;
-    private bool pause;
+    private bool interactive;
     private bool updateToxikk; // update TOXIKK through steamcmd
     private bool cleanWorkshop; // purge steamcmd workshop
     private bool updateWorkshop; // update steamcmd workshop items
     private bool syncWorkshop; // copy steamcmd workshop folder to TOXIKK\Workshop
-    private bool focusConsoleWindow; // instead of starting a server, bring its window on top
+    private ServerAction action = ServerAction.Start;
     private string machineName = Environment.MachineName.ToLower();
+    private readonly HashSet<string> runningServers = new HashSet<string>();
 
     private static readonly Regex portRegex = new Regex(@"^@port,\s*(\d+),\s*(-?\d+)\s*$", RegexOptions.IgnoreCase);
     private static readonly Regex skillClassRegex = new Regex(@"^@skillclass,\s*(\d+)\s*$", RegexOptions.IgnoreCase);
@@ -58,8 +66,10 @@ namespace ToxikkServerLauncher
       if (!InitFolders())
         return;
 
+      FindRunningServers();
+
       var workshop = new Workshop(this);
-      if (!focusConsoleWindow)
+      if (action == ServerAction.Start || action == ServerAction.Restart)
         workshop.UpdateWorkshop(this.updateWorkshop);
 
       // prompt for server IDs when none were specified on the command line
@@ -67,63 +77,25 @@ namespace ToxikkServerLauncher
       {
         Console.WriteLine();
         ListConfigurations();
-        Console.Write((focusConsoleWindow ? "Start" : "Focus") + " server(s): ");
-        serverIds = (Console.ReadLine() ?? "").Split(' ').ToList();
+        interactive = true;
       }
 
-      // execute commands and start server IDs
-      foreach (var id in serverIds)
+      do
       {
-        if (id == "-h")
-          ShowHelp();
-        else if (id == "-f")
-          focusConsoleWindow = true;
-        else if (id == "-uw")
-          workshop.UpdateWorkshop(true);
-        else if (!id.StartsWith("-"))
+        if (interactive)
         {
-          if (focusConsoleWindow)
-            FocusServerConsole(id);
-          else
-            RunServerConfiguration(id);
+          // prompt for commands and server IDs
+          Console.Write("\n" + ActionVerbs[(int)action] + " server(s): ");
+          serverIds = (Console.ReadLine() ?? "").Split(' ').ToList();
+          if (serverIds.Count == 1 && serverIds[0] == "")
+            break;
+          FindRunningServers();
         }
-      }
 
-      if (this.pause)
-        Console.ReadLine();
+        foreach (var id in serverIds)
+          ProcessCommand(id, workshop);
+      } while (interactive);
     }
-    #endregion
-
-    #region FocusServerConsole()
-    private void FocusServerConsole(string id)
-    {
-      var pidFile = Path.Combine(this.configFolder, ServerSectionPrefix + id, "toxikk.pid");
-      if (!File.Exists(pidFile))
-        Console.Error.WriteLine("No toxikk.pid file for this server");
-      else
-      {
-        var txt = File.ReadAllText(pidFile);
-        int pid;
-        if (int.TryParse(txt, out pid))
-        {
-          try
-          {
-            var proc = Process.GetProcessById(pid);
-            var hWnd = proc.MainWindowHandle;
-            Win32.ShowWindow(hWnd, Win32.SW_SHOWNORMAL);
-            Win32.SetForegroundWindow(hWnd);
-            Win32.SetCapture(hWnd);
-            Win32.SetFocus(hWnd);
-            Win32.SetActiveWindow(hWnd);
-          }
-          catch (ArgumentException)
-          {
-            Console.Error.WriteLine($"Server with PID {txt} is not running.");
-          }
-        }
-      }
-    }
-
     #endregion
 
     #region ParseCommandLine()
@@ -151,9 +123,21 @@ namespace ToxikkServerLauncher
             case "workshopdir":
               this.workshopFolder = val;
               break;
+            case "start":
+            case "s":
+              this.action = ServerAction.Start;
+              break;
             case "focus":
             case "f":
-              this.focusConsoleWindow = true;
+              this.action = ServerAction.Focus;
+              break;
+            case "stop":
+            case "x":
+              this.action = ServerAction.Stop;
+              break;
+            case "restart":
+            case "r":
+              this.action = ServerAction.Restart;
               break;
             case "listen":
             case "l":
@@ -170,10 +154,6 @@ namespace ToxikkServerLauncher
             case "showcommand":
             case "sc":
               this.showCommandLine = true;
-              break;
-            case "pause":
-            case "p":
-              this.pause = true;
               break;
             case "updatetoxikk":
             case "ut":
@@ -224,11 +204,13 @@ Options (can start with '-' or '/'):
   -workshopdir=...      Override the directory from where the launcher will copy workshop content to the TOXIKK folder
   -toxikkdir=...        Override the directory where the launcher will copy files to
   -showcommand, -sc:    Print the generated TOXIKK.exe command line on screen before starting TOXIKK
-  -pause, -p:           Wait for Enter key to exit the launcher (used for debugging to prevent closing the window)
   -verbose, -v:         More log output
+  -start, -s:           Start servers (this is the default action)
+  -stop, -x:            Stop the selected servers
+  -restart, -r:         Stops running servers before restarting them
   -focus, -f:           Focus the console window of an already running server
 
-More documentation can be found on https://github.com/PredatH0r/ToxikkServerLauncher
+The full documentation can be found on https://github.com/PredatH0r/ToxikkServerLauncher
 ");
     }
     #endregion
@@ -433,6 +415,132 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     }
     #endregion
 
+    #region FindRunningServers()
+    private void FindRunningServers()
+    {
+      this.runningServers.Clear();
+      var prefix = ServerSectionPrefix.ToLower();
+      foreach (var sec in this.mainIni.Sections)
+      {
+        if (!sec.Name.ToLower().StartsWith(prefix))
+          continue;
+        var id = sec.Name.Substring(ServerSectionPrefix.Length);
+        var proc = GetServerProcess(id, false);
+        if (proc != null)
+          this.runningServers.Add(id);
+      }
+    }
+    #endregion
+
+    #region GetServerProcess()
+    private Process GetServerProcess(string id, bool showError)
+    {
+      var pidFile = Path.Combine(this.configFolder, ServerSectionPrefix + id, "toxikk.pid");
+      if (File.Exists(pidFile))
+      {
+        var txt = File.ReadAllText(pidFile);
+        int pid;
+        if (int.TryParse(txt, out pid))
+        {
+          try
+          {
+            var proc = Process.GetProcessById(pid);
+            if (proc.MainModule.FileName.ToLower() == toxikkExe.ToLower())
+              return proc;
+          }
+          catch (ArgumentException)
+          {
+          }
+        }
+      }
+      if (showError)
+        Console.Error.WriteLine($"WARNING: Could not find process for server {id}");
+      return null;
+    }
+    #endregion
+
+    #region ProcessCommand()
+    private void ProcessCommand(string cmdOrId, Workshop workshop)
+    {
+      if (cmdOrId == "-h")
+        ShowHelp();
+      else if (cmdOrId == "-i")
+        ListConfigurations();
+      else if (cmdOrId == "-s")
+        action = ServerAction.Start;
+      else if (cmdOrId == "-r")
+        action = ServerAction.Restart;
+      else if (cmdOrId == "-x")
+        action = ServerAction.Stop;
+      else if (cmdOrId == "-f")
+        action = ServerAction.Focus;
+      else if (cmdOrId == "-uw")
+        workshop.UpdateWorkshop(true);
+      else if (!cmdOrId.StartsWith("-"))
+      {
+        if (action == ServerAction.Focus)
+          FocusServerConsole(cmdOrId);
+        else if (action == ServerAction.Stop)
+          StopServer(cmdOrId);
+        else if (action == ServerAction.Start)
+          RunServerConfiguration(cmdOrId);
+        else if (action == ServerAction.Restart)
+          RestartServer(cmdOrId);
+      }
+    }
+
+    #endregion
+
+
+    #region StopServer()
+    private bool StopServer(string id)
+    {     
+      var proc = GetServerProcess(id, true);
+      if (proc == null)
+        return true;
+      
+      // I tried various attempts to simulate Ctrl-C, but none worked (i.e. AttachConsole)
+      // CloseMainWindow() below or sending WM_CLOSE terminate the server without a clean shutdown
+
+      var closed = proc.CloseMainWindow() && proc.WaitForExit(3000);
+      if (!closed)
+        Console.Error.WriteLine("Failed to stop server " + id);
+      return closed;
+    }
+    #endregion
+
+    #region RestartServer()
+    private void RestartServer(string id)
+    {
+      // non-background threads so that main process will wait for their completion before exitting
+      var thread = new Thread(x =>
+      {
+        if (StopServer(id))
+          RunServerConfiguration(id);
+      });
+      thread.Name = id;
+      thread.IsBackground = false;
+      thread.Start();
+    }
+    #endregion
+
+    #region FocusServerConsole()
+    private void FocusServerConsole(string id)
+    {
+      var proc = GetServerProcess(id, true);
+      if (proc == null)
+        return;
+      var hWnd = proc.MainWindowHandle;
+      Win32.ShowWindow(hWnd, Win32.SW_SHOWNORMAL);
+      Win32.SetForegroundWindow(hWnd);
+      Win32.SetCapture(hWnd);
+      Win32.SetFocus(hWnd);
+      Win32.SetActiveWindow(hWnd);
+    }
+
+    #endregion
+
+
     #region CopyFolder()
     public void CopyFolder(string sourceDir, string targetDir)
     {
@@ -476,7 +584,9 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
         {
           var name = section.GetString("@ServerName") ?? section.GetString("ServerName");
           name = ProcessValueMacros("", name, this.globalVariables);
-          Console.WriteLine($"{section.Name.Substring(ServerSectionPrefix.Length),3}: {name}");
+          var id = section.Name.Substring(ServerSectionPrefix.Length);
+          string ind = this.runningServers.Contains(id) ? "*" : " ";
+          Console.WriteLine($"{id,3}: {ind} {name}");
         }
       }
     }
@@ -499,7 +609,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
       if (serverId == "0")
         this.dedicated = false;
 
-      this.globalVariables["@id@"] = serverId;
+      this.globalVariables["@cmdOrId@"] = serverId;
       this.globalVariables["@host@"] = machineName;
 
       var name = section.GetString("@ServerName") ?? ProcessValueMacros("", section.GetString("ServerName"), globalVariables) ?? sectionName;
@@ -1107,6 +1217,7 @@ More documentation can be found on https://github.com/PredatH0r/ToxikkServerLaun
     public bool SyncWorkshop => this.syncWorkshop;
     public IniFile MainIni => this.mainIni;
     public string MachineName => this.machineName;
+    public bool ServerProcessesRunning => this.runningServers.Count > 0;
 
     #endregion
   }

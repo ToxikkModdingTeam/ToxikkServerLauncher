@@ -64,7 +64,7 @@ namespace ToxikkServerLauncher
       if (launcher.SyncWorkshop)
       {
         Console.WriteLine("Copying workshop item contents to TOXIKK and HTTP redirect folders...");
-        if (Process.GetProcessesByName("toxikk").Length >= 1)
+        if (launcher.ServerProcessesRunning)
           Console.Error.WriteLine("WARNING: TOXIKK.exe is already running, updates may fail.");
         CopyWorkshopContent(itemStatus);
       }
