@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
+using System.Timers;
 
 namespace ToxikkServerLauncher
 {
@@ -15,6 +16,7 @@ namespace ToxikkServerLauncher
     private Workshop workshop;
     private bool interactive;
     private ServerAction action;
+    private readonly Timer reloadTimer = new Timer(100);
 
     #region Run()
     public void Run(string[] args)
@@ -31,6 +33,8 @@ namespace ToxikkServerLauncher
       if (commands.Count == 0)
       {
         watcher = MonitorChangesToMyServerConfigIni();
+        reloadTimer.AutoReset = false;
+        reloadTimer.Elapsed += ReloadMyServerConfigIni;
         interactive = true;
         ListConfigurations();
       }
@@ -94,9 +98,9 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
     {
       var watcher = new FileSystemWatcher(Path.GetDirectoryName(this.launcher.MainIni.FileName) ?? "");
       watcher.NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName;
-      watcher.Changed += ReloadMyServerConfigIni;
-      watcher.Created += ReloadMyServerConfigIni;
-      watcher.Renamed += ReloadMyServerConfigIni;
+      watcher.Changed += DelayReloadMyServerConfigIni;
+      watcher.Created += DelayReloadMyServerConfigIni;
+      watcher.Renamed += DelayReloadMyServerConfigIni;
       watcher.EnableRaisingEvents = true;
       return watcher;
     }
@@ -116,11 +120,16 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
       return true;
     }
 
-    private void ReloadMyServerConfigIni(object sender, FileSystemEventArgs e)
+    private void DelayReloadMyServerConfigIni(object sender, FileSystemEventArgs e)
     {
       if (e.Name != Path.GetFileName(this.launcher.MainIni.FileName))
         return;
+      this.reloadTimer.Stop();
+      this.reloadTimer.Start();
+    }
 
+    private void ReloadMyServerConfigIni(object sender, EventArgs e)
+    {
       Console.WriteLine("\n\nINFO: Reloading modified MyServerConfig.ini");
       LoadMyServerConfigIni();
       ListConfigurations();
