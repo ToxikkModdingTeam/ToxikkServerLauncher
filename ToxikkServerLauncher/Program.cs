@@ -4,8 +4,8 @@
   {
     static void Main(string[] args)
     {
-      var launcher = new Launcher();
-      launcher.Run(args);
+      var cli = new CLI();
+      cli.Run(args);
     }
   }
 }

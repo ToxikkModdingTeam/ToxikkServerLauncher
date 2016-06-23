@@ -49,11 +49,12 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="ILauncher.cs" />
+    <Compile Include="CLI.cs" />
     <Compile Include="IniFile.cs" />
     <Compile Include="Launcher.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Utils.cs" />
     <Compile Include="Win32.cs" />
     <Compile Include="Workshop.cs" />
   </ItemGroup>

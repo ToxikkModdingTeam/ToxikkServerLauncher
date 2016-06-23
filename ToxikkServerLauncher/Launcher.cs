@@ -10,48 +10,39 @@ using System.Threading;
 
 namespace ToxikkServerLauncher
 {
-  class Launcher : ILauncher
+  public class Launcher
   {
-    private const string Version = "2.20";
-    private const string ServerSectionPrefix = "DedicatedServer";
-    private const string ClientSection = "Client";
-
-    [Flags]
-    private enum ServerAction { Start = 0x01, Stop = 0x02, Restart = 0x03, Focus=0x04 }
-    private static readonly string[] ActionVerbs = { "", "Start", "Stop", "Restart", "Focus" };
-
-    private readonly string launcherFolder;
-    private string steamcmdExe;
-    private string toxikkFolder;
-    private string configFolder;
-    private string workshopFolder;
-    private string httpFolder;
-    private string toxikkExe;
-    private IniFile mainIni;
-    private bool dedicated = true;
-    private bool steamsockets = true;
-    private bool seekfreeloading = true;
-    private bool verbose;
-    private bool showCommandLine;
-    private bool interactive;
-    private bool updateToxikk; // update TOXIKK through steamcmd
-    private bool cleanWorkshop; // purge steamcmd workshop
-    private bool updateWorkshop; // update steamcmd workshop items
-    private bool syncWorkshop; // copy steamcmd workshop folder to TOXIKK\Workshop
-    private ServerAction action = ServerAction.Start;
-    private string machineName = Environment.MachineName.ToLower();
-    private readonly HashSet<string> runningServers = new HashSet<string>();
+    public const string ServerSectionPrefix = "DedicatedServer";
+    public const string ClientSection = "Client";
 
     private static readonly Regex portRegex = new Regex(@"^@port,\s*(\d+),\s*(-?\d+)\s*$", RegexOptions.IgnoreCase);
     private static readonly Regex skillClassRegex = new Regex(@"^@skillclass,\s*(\d+)\s*$", RegexOptions.IgnoreCase);
     private static readonly Regex serverNumRegx = new Regex(@".*?\\" + ServerSectionPrefix + @"(\d+)");
     private static readonly Regex varNameRegex = new Regex(@"@((?:[A-Za-z_][A-Za-z0-9_]+)|(?:\d+(?:\.\d+)?))@");
 
-    /// <summary>
-    /// Maps logical server setting names to real setting names (either ini-file\section\section specifier or a command line option name) as found in the [SimpleNames] section
-    /// </summary>
-    private readonly Dictionary<string,string> keyMapping = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
-    private readonly Dictionary<string,string> globalVariables = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
+    private readonly string launcherFolder;
+    private readonly HashSet<string> runningServers = new HashSet<string>();
+    private readonly Dictionary<string, string> simpleNames = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
+    private readonly Dictionary<string, string> globalVariables = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
+
+    public string SteamcmdExe { get; private set; }
+    public string ToxikkFolder { get; private set; }
+    public string ConfigFolder { get; private set; }
+    public string WorkshopFolder { get; private set; }
+    public string HttpFolder { get; private set; }
+    public string ToxikkExe { get; private set; }
+    public IniFile MainIni { get; private set; }
+    public bool Dedicated { get; set; } = true;
+    public bool Steamsockets { get; set; } = true;
+    public bool Seekfreeloading { get; set; } = true;
+    public bool Verbose { get; set; }
+    public bool ShowCommandLine { get; set; }
+    public bool UpdateToxikk { get; set; } // update TOXIKK through steamcmd
+    public bool CleanWorkshop { get; set; } // purge steamcmd workshop
+    public bool UpdateWorkshop { get; set; } // update steamcmd workshop items
+    public bool SyncWorkshop { get; set; } // copy steamcmd workshop folder to TOXIKK\Workshop
+    public string MachineName { get; private set; } = Environment.MachineName.ToLower();
+    public bool ServerProcessesRunning => runningServers.Count > 0;
 
     public Launcher()
     {
@@ -60,86 +51,9 @@ namespace ToxikkServerLauncher
         launcherFolder = Path.GetDirectoryName(Path.GetDirectoryName(launcherFolder));
     }
 
-    #region Run()
-    public void Run(string[] args)
-    {
-      FileSystemWatcher watcher = null;
-
-      Console.WriteLine("ToxikkServerLauncher " + Version + "\nhttps://github.com/ToxikkModdingTeam/ToxikkServerLauncher");
-
-      ReadServerConfig();
-      if (!InitFolders())
-        return;
-
-      FindRunningServers();
-
-      // setup interactive mode when no server IDs were specified on the command line
-      var commands = args.ToList();
-      if (commands.Count == 0)
-      {
-        Console.WriteLine();
-        ListConfigurations();
-        watcher = MonitorChangesToMyServerConfigIni();
-        interactive = true;
-      }
-
-      var workshop = new Workshop(this);
-
-      do
-      {
-        if (interactive)
-        {
-          // prompt for commands and server IDs
-          ShowInteractivePrompt();
-          commands = (Console.ReadLine() ?? "").Split(' ').ToList();
-          if (commands.Count == 1 && commands[0] == "")
-            continue;
-          FindRunningServers();
-        }
-
-        foreach (var id in commands)
-          ProcessCommand(id, workshop);
-      } while (interactive);
-
-      watcher?.Dispose();
-    }
-    #endregion
-
-    #region ShowHelp()
-    private void ShowHelp()
-    {
-      Console.WriteLine(@"
-ToxikkServerLauncher [command|server-id]...
-
-Multiple commands and server numbers can be mixed, e.g.: stop 1 start 2
-The full documentation can be found on https://github.com/PredatH0r/ToxikkServerLauncher
-
-Basic commands:
-  help, -h, -?:        This help screen
-  list:                Lists the available servers and their status
-  start, -s:           Sets the action for following server-ids to 'start'
-  restart, -r:         Sets the action for following server-ids to 'restart'
-  stop, -x:            Sets the action for following server-ids to 'stop'
-  focus, -f:           Focuses the console window of the specified server-id
-  quit, exit:          Quit the server launcher
-
-Advanced commands:
-  updateToxikk, -ut:   Update TOXIKK with steamcmd
-  cleanWorkshop, -cw:  Delete content of the steamcmd workshop folder
-  updateWorkshop, -uw: Update workshop items with steamcmd (implies -syncWorkshop)
-  syncWorkshop, -sw:   Copy steamcmd workshop folders to TOXIKK\Workshop
-  listen, -l:          Start a listen server instead of a dedicated server
-  noSteamSockets, -ns: Don't append ?steamsockets to the launch URL
-  noSeekFreeLoading, -nsfl: Don't append -seekfreeloading to the command line
-  showCommand, -sc:    Print the generated TOXIKK.exe command line on screen before starting TOXIKK
-  verbose, -v:         More log output
-  -cli:                Run in interactive command line interface mode
-");
-    }
-    #endregion
-
+    
     #region ReadServerConfig()
-    private void ReadServerConfig()
+    public bool ReadServerConfig()
     {
       // rename ServerConfig.ini template to MyServerConfig.ini to prevent overwriting the user config with an update of the launcher
       var myConfigFile = Path.Combine(launcherFolder, "MyServerConfig.ini");
@@ -147,41 +61,43 @@ Advanced commands:
       if (!File.Exists(myConfigFile))
         File.Move(configFile, myConfigFile);
       configFile = myConfigFile;
-      mainIni = new IniFile(configFile);
+      MainIni = new IniFile(configFile);
 
       // import old TOXIKK server config file format if necessary
-      if (!mainIni.Sections.Any(s => s.Name.StartsWith(ServerSectionPrefix)))
+      if (!MainIni.Sections.Any(s => s.Name.StartsWith(ServerSectionPrefix)))
       {
-        Console.WriteLine("No [" + ServerSectionPrefix + "...] sections found in ServerConfig.ini. Importing settings from ServerConfigList.ini ...");
+        Utils.WriteLine("No [" + ServerSectionPrefix + "...] sections found in ServerConfig.ini. Importing settings from ServerConfigList.ini ...");
         ConvertLegacyServerConfigListIni();
-        mainIni = new IniFile(configFile);
+        MainIni = new IniFile(configFile);
       }
 
       // build dictionary for "simple name" translation
-      var section = mainIni.GetSection("SimpleNames");
+      var section = MainIni.GetSection("SimpleNames");
       if (section != null)
       {
         foreach (var key in section.Keys)
-          keyMapping[key] = section.GetString(key) ?? "";
+          simpleNames[key] = section.GetString(key) ?? "";
       }
 
       // process [Hosts] section with mappings from physical host name(s) to logical host name
-      if ((section = mainIni.GetSection("Hosts")) != null)
+      if ((section = MainIni.GetSection("Hosts")) != null)
       {
         foreach (var key in section.Keys)
         {
           var values = section.GetString(key).ToLower().Replace(" ", "").Split(',');
-          if (values.Contains(machineName))
+          if (values.Contains(MachineName))
           {
-            machineName = key;
+            MachineName = key;
             break;
           }
         }
       }
 
       // process launcher config (first found value wins)
-      ReadLauncherConfig(mainIni.GetSection("ServerLauncher:" + machineName));
-      ReadLauncherConfig(mainIni.GetSection("ServerLauncher"));
+      ReadLauncherConfig(MainIni.GetSection("ServerLauncher:" + MachineName));
+      ReadLauncherConfig(MainIni.GetSection("ServerLauncher"));
+
+      return InitFolders();
     }
     #endregion
 
@@ -191,35 +107,35 @@ Advanced commands:
       if (section == null)
         return;
 
-      this.updateToxikk |= section.GetBool("UpdateToxikk");
-      this.cleanWorkshop |= section.GetBool("CleanWorkshop");
-      this.updateWorkshop |= section.GetBool("UpdateWorkshop");
-      this.syncWorkshop |= section.GetBool("SyncWorkshop");
+      this.UpdateToxikk |= section.GetBool("UpdateToxikk");
+      this.CleanWorkshop |= section.GetBool("CleanWorkshop");
+      this.UpdateWorkshop |= section.GetBool("UpdateWorkshop");
+      this.SyncWorkshop |= section.GetBool("SyncWorkshop");
 
       var steamcmdDir = section.GetString("SteamcmdDir");
-      if (steamcmdDir != null && this.steamcmdExe == null)
+      if (steamcmdDir != null && this.SteamcmdExe == null)
       {
         var exe = Path.Combine(steamcmdDir, "steamcmd.exe");
         if (File.Exists(exe))
-          this.steamcmdExe = exe;
+          this.SteamcmdExe = exe;
       }
 
       var workshopDir = section.GetString("WorkshopDir");
-      if (workshopDir != null && this.workshopFolder == null && Directory.Exists(workshopDir))
-        this.workshopFolder = workshopDir;
+      if (workshopDir != null && this.WorkshopFolder == null && Directory.Exists(workshopDir))
+        this.WorkshopFolder = workshopDir;
 
       var toxikkDir = section.GetString("ToxikkDir");
-      if (!string.IsNullOrEmpty(toxikkDir) && this.toxikkFolder == null)
+      if (!string.IsNullOrEmpty(toxikkDir) && this.ToxikkFolder == null)
       {
         var path = Path.Combine(toxikkDir, @"Binaries\win32\TOXIKK.exe");
         if (File.Exists(path))
-          this.toxikkFolder = toxikkDir;
+          this.ToxikkFolder = toxikkDir;
         else
-          Console.Error.WriteLine("WARNING: ignoring bad ToxikkDir in MyServerConfig.ini");
+          Utils.WriteLine("^EWARNING:^7 ignoring bad ToxikkDir in MyServerConfig.ini");
       }
 
-      if (this.httpFolder == null)
-        this.httpFolder = section.GetString("HttpRedirectDir");
+      if (this.HttpFolder == null)
+        this.HttpFolder = section.GetString("HttpRedirectDir");
 
 
       // parse @varname@=value lines
@@ -232,9 +148,9 @@ Advanced commands:
     #endregion
 
     #region ConvertLegacyServerConfigListIni()
-    private void ConvertLegacyServerConfigListIni()
+    public void ConvertLegacyServerConfigListIni()
     {
-      var oldConfigFile = Path.Combine(toxikkFolder, @"TOXIKKServers\TOXIKKServerLauncher\ServerConfigList.ini");
+      var oldConfigFile = Path.Combine(ToxikkFolder, @"TOXIKKServers\TOXIKKServerLauncher\ServerConfigList.ini");
       if (!File.Exists(oldConfigFile))
         return;
 
@@ -256,7 +172,7 @@ Advanced commands:
         }
 
         // extract the 14 columns
-        var fields = line.Split(' ', '\t').Where(f => f != "").Select(f => f.Trim('"')).ToList();
+        var fields = line.Split(new [] { ' ', '\t' }, 14).Where(f => f != "").Select(f => f.Trim('"')).ToList();
         for (int i = 0; i < 14; i++)
           fields.Add("");
 
@@ -276,7 +192,7 @@ Advanced commands:
         sb.AppendLine($"QueryPort={fields[10]}");
         sb.AppendLine($"MinSkillClass={fields[11]}");
         sb.AppendLine($"MaxSkillClass={fields[12]}");
-        sb.AppendLine($"Mutators={fields[13]}");
+        sb.AppendLine($"Mutators={fields[13].Replace(' ',',')}");
 
         File.AppendAllText(Path.Combine(launcherFolder, "MyServerConfig.ini"), sb.ToString());
       }
@@ -298,52 +214,52 @@ Advanced commands:
       // ReSharper disable PossibleNullReferenceException
       // ReSharper disable AssignNullToNotNullAttribute
 
-      if (this.toxikkFolder == null)
+      if (this.ToxikkFolder == null)
       {
         if (File.Exists(Path.Combine(this.launcherFolder, @"..\Binaries\Win32\TOXIKK.exe")))
-          this.toxikkFolder = Path.Combine(this.launcherFolder, "..");
-        else if (this.steamcmdExe != null)
-          this.toxikkFolder = Path.Combine(Path.GetDirectoryName(this.steamcmdExe), @"steamapps\common\TOXIKK");
+          this.ToxikkFolder = Path.Combine(this.launcherFolder, "..");
+        else if (this.SteamcmdExe != null)
+          this.ToxikkFolder = Path.Combine(Path.GetDirectoryName(this.SteamcmdExe), @"steamapps\common\TOXIKK");
       }
-      toxikkFolder = toxikkFolder?.TrimEnd('\\', '/');
-      toxikkExe = toxikkFolder == null ? null : Path.Combine(toxikkFolder, @"Binaries\win32\TOXIKK.exe");
-      if (toxikkExe == null || !File.Exists(toxikkExe))
+      ToxikkFolder = ToxikkFolder?.TrimEnd('\\', '/');
+      ToxikkExe = ToxikkFolder == null ? null : Path.Combine(ToxikkFolder, @"Binaries\win32\TOXIKK.exe");
+      if (ToxikkExe == null || !File.Exists(ToxikkExe))
       {
-        Console.Error.WriteLine("Couldn't find TOXIKK.exe. Please configure ToxikkDir in MyServerConfig.ini or copy+run the launcher from TOXIKK\\TOXIKKServers.");
+        Utils.WriteLine("Couldn't find TOXIKK.exe. Please configure ToxikkDir in MyServerConfig.ini or copy+run the launcher from TOXIKK\\TOXIKKServers.");
         return false;
       }
 
-      configFolder = Path.Combine(toxikkFolder, @"UDKGame\Config");
+      ConfigFolder = Path.Combine(ToxikkFolder, @"UDKGame\Config");
 
-      if (this.workshopFolder == null)
+      if (this.WorkshopFolder == null)
       {
-        if (this.steamcmdExe != null)
-          this.workshopFolder = Path.Combine(Path.GetDirectoryName(this.steamcmdExe), @"steamapps\workshop\content\324810");
-        else if (this.toxikkFolder != null)
-          this.workshopFolder = Path.Combine(this.toxikkFolder, @"..\..\workshop\content\324810");
+        if (this.SteamcmdExe != null)
+          this.WorkshopFolder = Path.Combine(Path.GetDirectoryName(this.SteamcmdExe), @"steamapps\workshop\content\324810");
+        else if (this.ToxikkFolder != null)
+          this.WorkshopFolder = Path.Combine(this.ToxikkFolder, @"..\..\workshop\content\324810");
       }
 
       // ReSharper restore PossibleNullReferenceException
       // ReSharper restore AssignNullToNotNullAttribute
 
-      if (!string.IsNullOrEmpty(httpFolder) && !Directory.Exists(httpFolder))
-        Directory.CreateDirectory(httpFolder);
+      if (!string.IsNullOrEmpty(HttpFolder) && !Directory.Exists(HttpFolder))
+        Directory.CreateDirectory(HttpFolder);
 
       // set some global variables which can be used inside @CopyFile statements
-      this.globalVariables["@ToxikkDir@"] = this.toxikkFolder;
-      this.globalVariables["@WorkshopDir@"] = this.workshopFolder;
-      this.globalVariables["@HttpRedirectDir@"] = this.httpFolder;
+      this.globalVariables["@ToxikkDir@"] = this.ToxikkFolder;
+      this.globalVariables["@WorkshopDir@"] = this.WorkshopFolder;
+      this.globalVariables["@HttpRedirectDir@"] = this.HttpFolder;
 
       return true;
     }
     #endregion
 
     #region FindRunningServers()
-    private void FindRunningServers()
+    public void FindRunningServers()
     {
       this.runningServers.Clear();
       var prefix = ServerSectionPrefix.ToLower();
-      foreach (var sec in this.mainIni.Sections)
+      foreach (var sec in this.MainIni.Sections)
       {
         if (!sec.Name.ToLower().StartsWith(prefix))
           continue;
@@ -358,7 +274,7 @@ Advanced commands:
     #region GetServerProcess()
     private Process GetServerProcess(string id, bool showError)
     {
-      var pidFile = Path.Combine(this.configFolder, ServerSectionPrefix + id, "toxikk.pid");
+      var pidFile = Path.Combine(this.ConfigFolder, ServerSectionPrefix + id, "toxikk.pid");
       if (File.Exists(pidFile))
       {
         var txt = File.ReadAllText(pidFile);
@@ -368,7 +284,7 @@ Advanced commands:
           try
           {
             var proc = Process.GetProcessById(pid);
-            if (proc.MainModule.FileName.ToLower() == toxikkExe.ToLower())
+            if (proc.MainModule.FileName.ToLower() == ToxikkExe.ToLower())
               return proc;
           }
           catch (ArgumentException)
@@ -377,141 +293,14 @@ Advanced commands:
         }
       }
       if (showError)
-        Console.Error.WriteLine($"WARNING: Could not find process for server {id}");
+        Utils.WriteLine($"^EWARNING: Could not find process for server {id}");
       return null;
     }
     #endregion
 
-    #region ShowInteractivePrompt()
-    private void ShowInteractivePrompt()
-    {
-      Console.Write($"\nCommand or server IDs [action='{ActionVerbs[(int)action]}'; use 'help' for help]: ");
-    }
-    #endregion
-
-    #region MonitorChangesToMyServerConfigIni()
-    private FileSystemWatcher MonitorChangesToMyServerConfigIni()
-    {
-      var watcher = new FileSystemWatcher(Path.GetDirectoryName(this.mainIni.FileName) ?? "");
-      watcher.NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName;
-      watcher.Changed += ReloadMyServerConfigIni;
-      watcher.Created += ReloadMyServerConfigIni;
-      watcher.Renamed += ReloadMyServerConfigIni;
-      watcher.EnableRaisingEvents = true;
-      return watcher;
-    }
-
-    #endregion
-
-    #region ReloadMyServerConfigIni()
-    private void ReloadMyServerConfigIni(object sender, FileSystemEventArgs e)
-    {
-      if (e.Name != Path.GetFileName(this.mainIni.FileName))
-        return;
-
-      Console.WriteLine("\n\nINFO: Reloading modified MyServerConfig.ini");
-      ReadServerConfig();
-      if (!InitFolders())
-        return;
-      FindRunningServers();
-      ListConfigurations();
-      ShowInteractivePrompt();
-    }
-    #endregion
-
-
-    #region ProcessCommand()
-    private void ProcessCommand(string cmdOrId, Workshop workshop)
-    {
-      int id;
-
-      if (int.TryParse(cmdOrId, out id))
-      {
-        if (action == ServerAction.Start)
-        {
-          workshop.UpdateWorkshop(false);
-          RunServerConfiguration(cmdOrId);
-        }
-        else if (action == ServerAction.Restart)
-          RestartServer(cmdOrId, workshop);
-        else if (action == ServerAction.Stop)
-          StopServer(cmdOrId);
-        else if (action == ServerAction.Focus)
-          FocusServerConsole(cmdOrId);
-      }
-      else if (cmdOrId == "-h" || cmdOrId == "-?" || cmdOrId == "help")
-        ShowHelp();
-      else if (cmdOrId == "-i" || cmdOrId == "list")
-        ListConfigurations();
-      else if (cmdOrId == "-s" || cmdOrId == "start")
-        action = ServerAction.Start;
-      else if (cmdOrId == "-r" || cmdOrId == "restart")
-        action = ServerAction.Restart;
-      else if (cmdOrId == "-x" || cmdOrId == "stop")
-        action = ServerAction.Stop;
-      else if (cmdOrId == "-f" || cmdOrId == "focus")
-        action = ServerAction.Focus;
-      else if (cmdOrId == "-uw" || cmdOrId == "updateworkshop")
-        workshop.UpdateWorkshop(true);
-      else if (cmdOrId == "quit" || cmdOrId == "exit")
-        interactive = false;
-      else
-        ProcessSwitch(cmdOrId);
-    }
-    #endregion
-
-    #region ProcessSwitch()
-    private void ProcessSwitch(string key)
-    {
-      switch (key.ToLower())
-      {
-        case "listen":
-        case "-l":
-          this.dedicated = false;
-          break;
-        case "nosteamsockets":
-        case "-nss":
-          this.steamsockets = false;
-          break;
-        case "noseekfreeloading":
-        case "-nsfl":
-          this.seekfreeloading = false;
-          break;
-        case "showcommand":
-        case "-sc":
-          this.showCommandLine = true;
-          break;
-        case "updatetoxikk":
-        case "-ut":
-          this.updateToxikk = true;
-          break;
-        case "cleanworkshop":
-        case "-cw":
-          this.cleanWorkshop = true;
-          break;
-        case "updateworkshop":
-        case "-uw":
-          this.updateWorkshop = true;
-          this.syncWorkshop = true;
-          break;
-        case "syncworkshop":
-        case "-sw":
-          this.syncWorkshop = true;
-          break;
-        case "verbose":
-        case "-v":
-          this.verbose = true;
-          break;
-        case "-cli":
-          this.interactive = true;
-          break;
-      }
-    }
-
-    #endregion
 
     #region StopServer()
-    private bool StopServer(string id)
+    public bool StopServer(string id)
     {     
       var proc = GetServerProcess(id, true);
       if (proc == null)
@@ -524,31 +313,30 @@ Advanced commands:
       if (closed)
         this.runningServers.Remove(id);
       else
-        Console.Error.WriteLine("Failed to stop server " + id);
+        Utils.WriteLine("Failed to stop server " + id);
       return closed;
     }
     #endregion
 
     #region RestartServer()
-    private void RestartServer(string id, Workshop workshop)
-    {
-      // non-background threads so that main process will wait for their completion before exitting
+    public void RestartServer(string id, Workshop workshop = null)
+    {      
       var thread = new Thread(x =>
       {
         if (StopServer(id))
         {
-          workshop.UpdateWorkshop(false);
-          RunServerConfiguration(id);
+          workshop?.UpdateWorkshop(false);
+          StartServer(id);
         }
       });
       thread.Name = id;
-      thread.IsBackground = false;
+      thread.IsBackground = false; // force main process to wait for completion before exitting
       thread.Start();
     }
     #endregion
 
     #region FocusServerConsole()
-    private void FocusServerConsole(string id)
+    public void FocusServerConsole(string id)
     {
       var proc = GetServerProcess(id, true);
       if (proc == null)
@@ -567,8 +355,8 @@ Advanced commands:
     #region CopyFolder()
     public void CopyFolder(string sourceDir, string targetDir)
     {
-      if (verbose)
-        Console.WriteLine("Copying " + sourceDir + " => " + targetDir);
+      if (Verbose)
+        Utils.WriteLine("Copying " + sourceDir + " => " + targetDir);
 
       // ReSharper disable AssignNullToNotNullAttribute
       foreach (var file in Directory.GetFiles(sourceDir))
@@ -579,9 +367,9 @@ Advanced commands:
           FileCopy(file, target, true);
 
         // copy files to HTTP redirect
-        if (!string.IsNullOrEmpty(httpFolder) && ".udk.upk.u".Contains(Path.GetExtension(file)))
+        if (!string.IsNullOrEmpty(HttpFolder) && ".udk.upk.u".Contains(Path.GetExtension(file)))
         {
-          target = Path.Combine(httpFolder, Path.GetFileName(file));
+          target = Path.Combine(HttpFolder, Path.GetFileName(file));
           if (File.GetLastWriteTimeUtc(file) != File.GetLastWriteTimeUtc(target) || new FileInfo(file).Length != new FileInfo(target).Length)
             FileCopy(file, target, true);
         }
@@ -594,51 +382,50 @@ Advanced commands:
     }
     #endregion
 
-    #region ListConfigurations()
-    private void ListConfigurations()
+    #region GetConfigurations()
+    public List<ServerInfo> GetConfigurations()
     {
-      Console.WriteLine("TOXIKK Server Launcher (use -h for help)");
-      Console.WriteLine("Available server configurations:");
-      if (mainIni.GetSection(ClientSection) != null)
-        Console.WriteLine("  0: update base configuration and start client");
-      foreach (var section in mainIni.Sections)
+      var list = new List<ServerInfo>();
+      if (MainIni.GetSection(ClientSection) != null)
+        list.Add(new ServerInfo("0", "Update base configuration and start client", false));
+      foreach (var section in MainIni.Sections)
       {
         if (section.Name.StartsWith(ServerSectionPrefix) && !section.Name.Contains(":"))
         {
           var name = section.GetString("@ServerName") ?? section.GetString("ServerName");
           name = ProcessValueMacros("", name, this.globalVariables);
           var id = section.Name.Substring(ServerSectionPrefix.Length);
-          string ind = this.runningServers.Contains(id) ? "*" : " ";
-          Console.WriteLine($"{id,3}: {ind} {name}");
+          list.Add(new ServerInfo(id, name, this.runningServers.Contains(id)));
         }
       }
+      return list;
     }
     #endregion
 
-    #region RunServerConfiguration()
-    private void RunServerConfiguration(string serverId)
+    #region StartServer()
+    public void StartServer(string serverId)
     {
       if (serverId.Trim() == "")
         return;
 
       var sectionName = serverId == "0" ? ClientSection : ServerSectionPrefix + serverId;
-      var section = mainIni.GetSection(sectionName);
+      var section = MainIni.GetSection(sectionName);
       if (section == null)
       {
-        Console.Error.WriteLine("No configuration section for " + sectionName);
+        Utils.WriteLine("^CNo configuration section for " + sectionName);
         return;
       }
 
       if (serverId == "0")
-        this.dedicated = false;
+        this.Dedicated = false;
 
       this.globalVariables["@cmdOrId@"] = serverId;
-      this.globalVariables["@host@"] = machineName;
+      this.globalVariables["@host@"] = MachineName;
 
       var name = section.GetString("@ServerName") ?? ProcessValueMacros("", section.GetString("ServerName"), globalVariables) ?? sectionName;
-      Console.WriteLine("\nStarting " + name);
+      Utils.WriteLine("\nStarting " + name);
       string map, options, cmdArgs;
-      if (GenerateConfig(mainIni, section, out map, out options, out cmdArgs))
+      if (GenerateConfig(MainIni, section, out map, out options, out cmdArgs))
       {
         if (serverId == "0")
           Process.Start("steam://rungameid/324810");
@@ -652,7 +439,7 @@ Advanced commands:
     #region GenerateConfig()
     private bool GenerateConfig(IniFile iniFile, IniFile.Section section, out string map, out string options, out string cmdArgs)
     {
-      var targetConfigFolder = this.dedicated ? Path.Combine(configFolder, section.Name) : this.configFolder.TrimEnd('\\', '/');
+      var targetConfigFolder = this.Dedicated ? Path.Combine(ConfigFolder, section.Name) : this.ConfigFolder.TrimEnd('\\', '/');
       CopyIniFilesToServerConfigFolder(targetConfigFolder, section);
 
       var destIniCache = new Dictionary<string, IniFile>();
@@ -662,17 +449,17 @@ Advanced commands:
 
 
       // default command line args, can be modified with @cmdline =, +=, -=
-      cmdArgs = dedicated ? "-configsubdir=" + section.Name + " -nohomedir -unattended" : "-log -nostartupmovies";
+      cmdArgs = Dedicated ? "-configsubdir=" + section.Name + " -nohomedir -unattended" : "-log -nostartupmovies";
       map = null;
 
       // recursive processing of a section and its @Import sections, then override any section with a machine-specific section
       ProcessConfigSection(targetConfigFolder, "", iniFile, section, destIniCache, optionDict, variableDict, ref cmdArgs);
-      ProcessConfigSection(targetConfigFolder, "", iniFile, iniFile.GetSection(section.Name + ":" + machineName), destIniCache, optionDict, variableDict, ref cmdArgs);
+      ProcessConfigSection(targetConfigFolder, "", iniFile, iniFile.GetSection(section.Name + ":" + MachineName), destIniCache, optionDict, variableDict, ref cmdArgs);
 
       // build URL with map name and options
       if (!section.Name.StartsWith(ClientSection) && !optionDict.TryGetValue("map", out map))
       {
-        Console.Error.WriteLine("ERROR: No map specified");
+        Utils.WriteLine("^CERROR:^7 No map specified");
         options = null;
         return false;
       }
@@ -694,19 +481,19 @@ Advanced commands:
     #region CopyIniFilesToServerConfigFolder()
     private void CopyIniFilesToServerConfigFolder(string targetConfigFolder, IniFile.Section section)
     {
-      if (this.dedicated)
+      if (this.Dedicated)
       {
         // delete all files from the target config folder, except those matching a @Keep=... pattern
         if (Directory.Exists(targetConfigFolder))
           ClearDirectory(targetConfigFolder, GetFilesToKeep(section));
 
         // copy all Default*.ini files
-        foreach (var file in Directory.GetFiles(configFolder, "Default*.ini"))
+        foreach (var file in Directory.GetFiles(ConfigFolder, "Default*.ini"))
           FileCopy(file, Path.Combine(targetConfigFolder, Path.GetFileName(file) ?? ""), true);
 
         // copy UDK*.ini where there is no matching Default*.ini
         // (sometimes UDK* files are accessed before they have been generated from Default* files)
-        foreach (var file in Directory.GetFiles(configFolder, "UDK*.ini"))
+        foreach (var file in Directory.GetFiles(ConfigFolder, "UDK*.ini"))
         {
           var fileName = Path.GetFileName(file) ?? "";
           var defaultFile = Path.Combine(Path.GetDirectoryName(file) ?? "", "Default" + fileName.Substring(3));
@@ -722,10 +509,10 @@ Advanced commands:
         FileCopy(file, Path.Combine(targetConfigFolder, fileName), true);
       }
 
-      if (this.dedicated)
+      if (this.Dedicated)
       {
         // copy all *.ini files from Workshop/Config folder (but don't overwrite existing files)
-        var dir = Path.Combine(this.toxikkFolder, @"UDKGame\Workshop\Config");
+        var dir = Path.Combine(this.ToxikkFolder, @"UDKGame\Workshop\Config");
         if (Directory.Exists(dir))
         {
           foreach (var file in Directory.GetFiles(dir, "*.ini"))
@@ -856,12 +643,12 @@ Advanced commands:
               {
               }
               else
-                Console.Error.WriteLine("WARNING: ignoring unknown directive: " + unmappedKey + "=" + rawValue.Value);
+                Utils.WriteLine($"^EWARNING: ignoring unknown directive: {unmappedKey}={rawValue.Value}");
             }
             else
             {
               string mappedKey;
-              if (!keyMapping.TryGetValue(unmappedKey, out mappedKey))
+              if (!simpleNames.TryGetValue(unmappedKey, out mappedKey))
                 mappedKey = unmappedKey;
 
               var configMapping = mappedKey.Split('\\');
@@ -892,7 +679,7 @@ Advanced commands:
       var loops = ExtractLoopList(rawValue, out colon);
       if (loops.Count == 0)
       {
-        Console.Error.WriteLine("WARNING: bad @loop statement: " + rawValue);
+        Utils.WriteLine($"^CWARNING: bad @loop statement: {rawValue}");
         return new LoopInfo();
       }
 
@@ -1057,22 +844,22 @@ Advanced commands:
           var subIni = new IniFile(Path.Combine(this.launcherFolder, subFolder, subFile));
           var sec = subIni.GetSection(subSection);
           if (sec == null)
-            Console.Error.WriteLine("WARNING: @import={0}: failed to locate {1}{2}\\{3}", value, subFolder, subFile, subSection);
+            Utils.WriteLine($"^EWARNING: @import={value}: failed to locate {subFolder}{subFile}\\{subSection}");
           else
           {
             ProcessConfigSection(targetConfigFolder, subFolder, subIni, sec, destIniCache, options, variables, ref cmdArgs);
-            ProcessConfigSection(targetConfigFolder, subFolder, subIni, subIni.GetSection(subSection + ":" + machineName), destIniCache, options, variables, ref cmdArgs);
+            ProcessConfigSection(targetConfigFolder, subFolder, subIni, subIni.GetSection(subSection + ":" + MachineName), destIniCache, options, variables, ref cmdArgs);
           }
         }
         else // import section from same file
         {
           var sec = iniFile.GetSection(import);
           if (sec == null)
-            Console.Error.WriteLine("WARNING: @import={0}: failed to locate [{1}]", value, import);
+            Utils.WriteLine($"^EWARNING: @import={value}: failed to locate [{import}]");
           else
           {
             ProcessConfigSection(targetConfigFolder, configSourceFolder, iniFile, sec, destIniCache, options, variables, ref cmdArgs);
-            ProcessConfigSection(targetConfigFolder, configSourceFolder, iniFile, iniFile.GetSection(import + ":" + machineName), destIniCache, options, variables, ref cmdArgs);
+            ProcessConfigSection(targetConfigFolder, configSourceFolder, iniFile, iniFile.GetSection(import + ":" + MachineName), destIniCache, options, variables, ref cmdArgs);
           }
         }
       }
@@ -1096,12 +883,12 @@ Advanced commands:
         var destName = names.Length == 2 ? names[1].Trim() : Path.IsPathRooted(sourceName) ? Path.GetFileName(sourceName) : sourceName;
         if (sourceName != "" && destName != "")
         {
-          var folder = File.Exists(Path.Combine(launcherFolder, configSourceFolder, sourceName)) ? Path.Combine(launcherFolder, configSourceFolder) : configFolder;
+          var folder = File.Exists(Path.Combine(launcherFolder, configSourceFolder, sourceName)) ? Path.Combine(launcherFolder, configSourceFolder) : ConfigFolder;
           var source = Path.Combine(folder, sourceName);
           if (File.Exists(source))
             FileCopy(source, Path.Combine(targetConfigFolder, destName), true);
           else
-            Console.Error.WriteLine("WARNING: @copy source not found: " + sourceName);
+            Utils.WriteLine($"^EWARNING: @copy source not found: {sourceName}");
         }
       }
     }
@@ -1167,37 +954,37 @@ Advanced commands:
     private void LaunchServer(string map, string options, string cmdArgs, string sectionName)
     {
       string args = "";
-      if (dedicated)
+      if (Dedicated)
         args = "server ";
 
       args += map;
 
-      if (dedicated)
+      if (Dedicated)
         args += "?dedicated=true";
       else
         args += "?listen=true";
 
       args += options;
 
-      if (steamsockets)
+      if (Steamsockets)
         args += "?steamsockets";
 
-      if (this.seekfreeloading)
+      if (this.Seekfreeloading)
         cmdArgs += " -seekfreeloading";
 
       if (cmdArgs.Length > 0)
         args += " " + cmdArgs;
 
-      if (this.showCommandLine)
-        Console.WriteLine("INFO: starting " + toxikkExe + " " + args);
+      if (this.ShowCommandLine)
+        Utils.WriteLine("INFO: starting " + ToxikkExe + " " + args);
 
-      Environment.CurrentDirectory = Path.GetDirectoryName(toxikkExe) ?? "";
-      var proc = Process.Start(toxikkExe, args);
+      Environment.CurrentDirectory = Path.GetDirectoryName(ToxikkExe) ?? "";
+      var proc = Process.Start(ToxikkExe, args);
       if (proc == null)
-        Console.Error.WriteLine("Couldn't start TOXIKK for " + sectionName);
+        Utils.WriteLine("Couldn't start TOXIKK for " + sectionName);
       else
       {
-        var pidFile = Path.Combine(configFolder, sectionName, "toxikk.pid");
+        var pidFile = Path.Combine(ConfigFolder, sectionName, "toxikk.pid");
         File.WriteAllText(pidFile, proc.Id.ToString());
       }
     }
@@ -1226,23 +1013,6 @@ Advanced commands:
       return parts.ToArray();
     }
     #endregion
-
-    
-    #region ILauncher implementation
-
-    public string ToxikkFolder => this.toxikkFolder;
-    public string WorkshopFolder => this.workshopFolder;
-    public string HttpFolder => this.httpFolder;
-    public string SteamcmdExe => this.steamcmdExe;
-    public bool UpdateToxikk => this.updateToxikk;
-    public bool CleanWorkshop => this.cleanWorkshop;
-    public bool UpdateWorkshop => this.updateWorkshop;
-    public bool SyncWorkshop => this.syncWorkshop;
-    public IniFile MainIni => this.mainIni;
-    public string MachineName => this.machineName;
-    public bool ServerProcessesRunning => this.runningServers.Count > 0;
-
-    #endregion
   }
 
   #region class LoopInfo
@@ -1265,6 +1035,22 @@ Advanced commands:
     {
       Template = loopTemplate;
       CombinationValues = combinationValues;
+    }
+  }
+  #endregion
+
+  #region class ServerInfo
+  public class ServerInfo
+  {
+    public string ID { get; }
+    public string Name { get; }
+    public bool IsRunning { get; }
+
+    public ServerInfo(string id, string descr, bool isRunning)
+    {
+      ID = id;
+      Name = descr;
+      IsRunning = isRunning;
     }
   }
   #endregion

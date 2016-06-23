@@ -11,7 +11,13 @@ using ICSharpCode.SharpZipLib.Zip;
 
 namespace ToxikkServerLauncher
 {
-  class Workshop
+  /// <summary>
+  /// This class handles updates of 
+  /// - TOXIKK game files through steamcmd
+  /// - Steam Workshop items through steamcmd
+  /// - non-workshop items through .zip file URLs
+  /// </summary>
+  public class Workshop
   {
     #region class ItemStatus
     private class ItemStatus
@@ -44,9 +50,9 @@ namespace ToxikkServerLauncher
     }
     #endregion
 
-    private readonly ILauncher launcher;
+    private readonly Launcher launcher;
 
-    public Workshop(ILauncher launcher)
+    public Workshop(Launcher launcher)
     {
       this.launcher = launcher;
     }
@@ -63,9 +69,9 @@ namespace ToxikkServerLauncher
 
       if (launcher.SyncWorkshop)
       {
-        Console.WriteLine("Copying workshop item contents to TOXIKK and HTTP redirect folders...");
+        Utils.WriteLine("Copying workshop item contents to TOXIKK and HTTP redirect folders...");
         if (launcher.ServerProcessesRunning)
-          Console.Error.WriteLine("WARNING: TOXIKK.exe is already running, updates may fail.");
+          Utils.WriteLine("^EWARNING^7: TOXIKK.exe is already running, updates may fail.");
         CopyWorkshopContent(itemStatus);
       }
     }
@@ -75,7 +81,7 @@ namespace ToxikkServerLauncher
     private void CleanWorkshopFolder()
     {
       // delete the manifest file to make sure we really download
-      Console.WriteLine("Cleaning " + launcher.WorkshopFolder);
+      Utils.WriteLine("Cleaning " + launcher.WorkshopFolder);
       File.Delete(Path.Combine(launcher.WorkshopFolder, @"..\..\appworkshop_324810.acf"));
 
       // delete all numeric folders (which can be reacquired from steam) but keep alphanumeric folders (with developer content)
@@ -87,12 +93,12 @@ namespace ToxikkServerLauncher
           try { Directory.Delete(itemFolder, true); }
           catch (IOException ex)
           {
-            Console.Error.WriteLine("ERROR: couldn't delete " + itemFolder + ": " + ex.Message);
+            Utils.WriteLine("^CERROR:^7 couldn't delete " + itemFolder + ": " + ex.Message);
           }
         }
         else
         {
-          Console.WriteLine("INFO: keeping non-steam folder " + itemFolder);
+          Utils.WriteLine("^FINFO:^7 keeping non-steam folder " + itemFolder);
         }
       }
     }
@@ -141,7 +147,7 @@ namespace ToxikkServerLauncher
 
       if (launcher.SteamcmdExe == null)
       {
-        Console.Error.WriteLine("WARNING: Steamcmd not configured, skipping workshop updates.");
+        Utils.WriteLine("^EWARNING:^7 Steamcmd not configured, skipping workshop updates.");
         return;
       }
 
@@ -152,7 +158,7 @@ namespace ToxikkServerLauncher
       var pass = sec1?.GetString("Password") ?? sec2.GetString("Password");
       if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(pass))
       {
-        Console.Error.WriteLine("WARNING: User/Password not configured in [SteamWorkshop], skipping workshop updates.");
+        Utils.WriteLine("^EWARNING:^7 User/Password not configured in [SteamWorkshop], skipping workshop updates.");
         return;
       }
 
@@ -167,12 +173,12 @@ namespace ToxikkServerLauncher
       }
       sb.Append(" +quit");
 
-      Console.WriteLine("Updating TOXIKK and Steam Workshop Items...\n");
+      Utils.WriteLine("Updating TOXIKK and Steam Workshop Items...\n");
       var psi = new ProcessStartInfo(launcher.SteamcmdExe, sb.ToString());
       psi.UseShellExecute = false;
       var proc = Process.Start(psi);
       proc?.WaitForExit();
-      Console.WriteLine("\nSteam update complete.\n");
+      Utils.WriteLine("\nSteam update complete.\n");
     }
     #endregion
 
@@ -189,7 +195,7 @@ namespace ToxikkServerLauncher
         if (!item.RequireDownload || string.IsNullOrEmpty(item.ZipUrl))
           continue;
 
-        Console.WriteLine("Downloading " + item.ZipUrl + " ...");
+        Utils.WriteLine("Downloading " + item.ZipUrl + " ...");
         countdown.AddCount(1);
         var file = Path.Combine(launcher.WorkshopFolder, item.FolderName + ".zip");
         File.Delete(file);
@@ -210,7 +216,7 @@ namespace ToxikkServerLauncher
       var countdown = context.Item3;
 
       if (e.Error != null)
-        Console.Error.WriteLine("ERROR: Failed to download " + item.ZipUrl);
+        Utils.WriteLine("^CERROR:^7 Failed to download " + item.ZipUrl);
       else
       {
         FastZip zip = new FastZip();
@@ -226,16 +232,16 @@ namespace ToxikkServerLauncher
             foreach (var subDir in Directory.GetFileSystemEntries(dirItems[0]))
             {
               if (Directory.Exists(subDir))
-                Directory.Move(subDir, Path.Combine(dir, Path.GetFileName(subDir)));
+                Directory.Move(subDir, Path.Combine(dir, Path.GetFileName(subDir) ?? ""));
               else
-                File.Move(subDir, Path.Combine(dir, Path.GetFileName(subDir)));
+                File.Move(subDir, Path.Combine(dir, Path.GetFileName(subDir) ?? ""));
             }
             Directory.Delete(dirItems[0]);
           }
         }
         catch (Exception ex)
         {
-          Console.Error.WriteLine("ERROR: Failed to extract " + file + ": " + ex.Message);
+          Utils.WriteLine("^CERROR:^7 Failed to extract " + file + ": " + ex.Message);
         }
       }
       countdown.Signal();
@@ -251,7 +257,7 @@ namespace ToxikkServerLauncher
         return;
 
       if (launcher.HttpFolder == null)
-        Console.Error.WriteLine("WARNING: no HTTP redirect folder configured. Clients won't be able to auto-download workshop items.");
+        Utils.WriteLine("^EWARNING:^7 no HTTP redirect folder configured. Clients won't be able to auto-download workshop items.");
 
       var toxikkWorkshopDir = Path.Combine(launcher.ToxikkFolder, @"UDKGame\Workshop");
       try
@@ -262,7 +268,7 @@ namespace ToxikkServerLauncher
       }
       catch (IOException ex)
       {
-        Console.Error.WriteLine("Failed to delete " + toxikkWorkshopDir + ": " + ex.Message);
+        Utils.WriteLine($"^CERROR:^7 Failed to delete {toxikkWorkshopDir}: {ex.Message}");
       }
 
       foreach (var item in items)
@@ -273,11 +279,11 @@ namespace ToxikkServerLauncher
           if (Directory.Exists(itemPath))
             launcher.CopyFolder(itemPath, toxikkWorkshopDir);
           else
-            Console.Error.WriteLine("WARNING: Workshop item folder not found: " + itemPath);
+            Utils.WriteLine($"^EWARNING:^7 Workshop item folder not found: {itemPath}");
         }
         catch (IOException ex)
         {
-          Console.Error.WriteLine("Failed to copy workshop item " + itemPath + ": " + ex.Message);
+          Utils.WriteLine($"^CERROR:^7 Failed to copy workshop item {itemPath}: {ex.Message}");
         }
       }
     }
