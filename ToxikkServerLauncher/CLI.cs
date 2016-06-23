@@ -71,17 +71,17 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
 ^FBasic commands^7:
   help, -h, -?:        This help screen
   list, -l:            Lists the available servers and their status
-  start, -s:           Sets the action for following server-ids to 'start'
-  restart, -r:         Sets the action for following server-ids to 'restart'
-  stop, -x:            Sets the action for following server-ids to 'stop'
-  focus, -f:           Focuses the console window of the specified server-id
+  start, -s:           Start servers with the following ids
+  restart, -r:         Restart servers with following ids
+  stop, -x:            Stop servers with the following ids
+  focus, -f:           Focuses the console window of the specified server id
   quit, exit:          Quit the server launcher
 
 ^FAdvanced commands^7:
-  updateToxikk, -ut:   Update TOXIKK with steamcmd
-  cleanWorkshop, -cw:  Delete content of the steamcmd workshop folder
+  updateToxikk, -ut:   Update TOXIKK game files with steamcmd
+  cleanWorkshop, -cw:  Delete content of the steamcmd workshop\324810 folder
   updateWorkshop, -uw: Update workshop items with steamcmd (implies -syncWorkshop)
-  syncWorkshop, -sw:   Copy steamcmd workshop folders to TOXIKK\Workshop
+  syncWorkshop, -sw:   Copy steamcmd workshop folders to TOXIKK\UDKGame\Workshop
   listen:              Start a listen server instead of a dedicated server
   noSteamSockets:      Don't append ?steamsockets to the launch URL
   noSeekFreeLoading:   Don't append -seekfreeloading to the command line
