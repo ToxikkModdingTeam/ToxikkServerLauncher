@@ -40,7 +40,7 @@ namespace ToxikkServerLauncher
       }
 
       #region Name
-      public string Name { get; private set; }
+      public string Name { get; }
       #endregion
 
       #region Add()
@@ -172,24 +172,20 @@ namespace ToxikkServerLauncher
     }
     #endregion
 
-    private const string SpecialAssignmentOperators = "!:.+-*";
-    private readonly Dictionary<string, Section> sectionDict;
-    private readonly List<Section> sectionList;
-    private readonly string fileName;
+    private readonly Dictionary<string, Section> sectionDict = new Dictionary<string, Section>(StringComparer.InvariantCultureIgnoreCase);
+    private readonly List<Section> sectionList = new List<Section>();
+
+    public string FileName { get; private set; }
+    public string SpecialAssignmentOperators { get; set; } = "!:.+-*";
+    public bool AllowMultiLineValues { get; set; }
+    public IEnumerable<Section> Sections => this.sectionList;
 
     #region ctor()
     public IniFile(string fileName)
     {
-      this.sectionDict = new Dictionary<string, Section>(StringComparer.InvariantCultureIgnoreCase);
-      this.sectionList = new List<Section>();
-      this.fileName = fileName;
-      this.ReadIniFile();
+      this.Load(fileName);
     }
     #endregion
-
-    public IEnumerable<Section> Sections => this.sectionList;
-
-    public string FileName => this.fileName;
 
     #region GetSection()
     public Section GetSection(string sectionName, bool create = false)
@@ -206,12 +202,13 @@ namespace ToxikkServerLauncher
     }
     #endregion
 
-    #region ReadIniFile()
-    private void ReadIniFile()
+    #region Load()
+    public void Load(string file)
     {
-      if (!File.Exists(fileName))
+      if (!File.Exists(file))
         return;
-      using (StreamReader rdr = new StreamReader(fileName))
+      this.FileName = file;
+      using (StreamReader rdr = new StreamReader(file))
       {
         Section currentSection = null;
         string line;
@@ -255,7 +252,7 @@ namespace ToxikkServerLauncher
             val = "";
           }
 
-          if (line.EndsWith("\\")) // value will continue on the next line
+          if (AllowMultiLineValues && line.EndsWith("\\")) // value will continue on the next line
             val += line.Substring(idx + 1, line.Length - idx - 1 - 1).Trim() + "\n";
           else // complete value available
           {
@@ -282,7 +279,7 @@ namespace ToxikkServerLauncher
         }
         sb.AppendLine();
       }
-      File.WriteAllText(this.fileName, sb.ToString());
+      File.WriteAllText(this.FileName, sb.ToString());
     }
     #endregion
 

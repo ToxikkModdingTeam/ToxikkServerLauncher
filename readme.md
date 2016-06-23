@@ -5,7 +5,7 @@ This tool centralizes configurations for many server instances on multiple machi
 
 Main features:
 - update TOXIKK and workshop items through steamcmd.exe
-- automatically copies downloaded workshop items into TOXIKK and HTTP redirect folders
+- automatically copies downloaded workshop items to TOXIKK and HTTP redirect folders
 - single centralized configuration file used to dynamically generate config folders and files for individual servers and machines.
 - builds the command line with server specific options needed to launch TOXIKK.exe as a dedicated server.
 - friendly settings names instead of the real INI or command line option names.

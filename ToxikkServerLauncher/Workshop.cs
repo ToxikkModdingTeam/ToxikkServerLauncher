@@ -126,9 +126,6 @@ namespace ToxikkServerLauncher
             continue;
           }
 
-          //if (id == 0 && !dirExists)
-          //  Console.Error.WriteLine("WARNING: Missing workshop item: " + nameOrId);
-
           itemList.Add(newStatus);
         }
       }
@@ -221,7 +218,6 @@ namespace ToxikkServerLauncher
         try
         {
           zip.ExtractZip(file, dir, FastZip.Overwrite.Always, null, null, null, true);
-          File.Delete(file);
 
           // if extracting the zip created paths like 324810\MyItem\MyItem\Content, move the subfolders one level up
           var dirItems = Directory.GetFileSystemEntries(dir);
@@ -243,6 +239,7 @@ namespace ToxikkServerLauncher
         }
       }
       countdown.Signal();
+      File.Delete(file);
       ((WebClient)sender).Dispose();
     }
     #endregion
