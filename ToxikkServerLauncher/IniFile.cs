@@ -205,9 +205,9 @@ namespace ToxikkServerLauncher
     #region Load()
     public void Load(string file)
     {
+      this.FileName = file;
       if (!File.Exists(file))
         return;
-      this.FileName = file;
       using (StreamReader rdr = new StreamReader(file))
       {
         Section currentSection = null;

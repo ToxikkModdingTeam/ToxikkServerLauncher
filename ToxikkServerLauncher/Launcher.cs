@@ -50,7 +50,6 @@ namespace ToxikkServerLauncher
       if (launcherFolder.EndsWith(@"\bin\Debug"))
         launcherFolder = Path.GetDirectoryName(Path.GetDirectoryName(launcherFolder));
     }
-
     
     #region ReadServerConfig()
     public bool ReadServerConfig()
@@ -94,8 +93,8 @@ namespace ToxikkServerLauncher
       }
 
       // process launcher config (first found value wins)
-      ReadLauncherConfig(MainIni.GetSection("ServerLauncher:" + MachineName));
-      ReadLauncherConfig(MainIni.GetSection("ServerLauncher"));
+      foreach (var sec in GetApplicableSections("ServerLauncher", true))
+        ReadLauncherConfig(sec);
 
       return InitFolders();
     }
@@ -104,9 +103,6 @@ namespace ToxikkServerLauncher
     #region ReadLauncherConfig()
     private void ReadLauncherConfig(IniFile.Section section)
     {
-      if (section == null)
-        return;
-
       this.UpdateToxikk |= section.GetBool("UpdateToxikk");
       this.CleanWorkshop |= section.GetBool("CleanWorkshop");
       this.UpdateWorkshop |= section.GetBool("UpdateWorkshop");
@@ -287,7 +283,7 @@ namespace ToxikkServerLauncher
             if (proc.MainModule.FileName.ToLower() == ToxikkExe.ToLower())
               return proc;
           }
-          catch (ArgumentException)
+          catch
           {
           }
         }
@@ -452,9 +448,9 @@ namespace ToxikkServerLauncher
       cmdArgs = Dedicated ? "-configsubdir=" + section.Name + " -nohomedir -unattended" : "-log -nostartupmovies";
       map = null;
 
-      // recursive processing of a section and its @Import sections, then override any section with a machine-specific section
-      ProcessConfigSection(targetConfigFolder, "", iniFile, section, destIniCache, optionDict, variableDict, ref cmdArgs);
-      ProcessConfigSection(targetConfigFolder, "", iniFile, iniFile.GetSection(section.Name + ":" + MachineName), destIniCache, optionDict, variableDict, ref cmdArgs);
+      // recursive processing of a section and its @Import sections, then override everything with values from a more machine specific sections
+      foreach(var sec in GetApplicableSections(section.Name))
+        ProcessConfigSection(targetConfigFolder, "", iniFile, sec, destIniCache, optionDict, variableDict, ref cmdArgs);
 
       // build URL with map name and options
       if (!section.Name.StartsWith(ClientSection) && !optionDict.TryGetValue("map", out map))
@@ -853,13 +849,13 @@ namespace ToxikkServerLauncher
         }
         else // import section from same file
         {
-          var sec = iniFile.GetSection(import);
-          if (sec == null)
+          var secs = GetApplicableSections(import);
+          if (secs.Count == 0)
             Utils.WriteLine($"^EWARNING: @import={value}: failed to locate [{import}]");
           else
           {
-            ProcessConfigSection(targetConfigFolder, configSourceFolder, iniFile, sec, destIniCache, options, variables, ref cmdArgs);
-            ProcessConfigSection(targetConfigFolder, configSourceFolder, iniFile, iniFile.GetSection(import + ":" + MachineName), destIniCache, options, variables, ref cmdArgs);
+            foreach(var sec in secs)
+              ProcessConfigSection(targetConfigFolder, configSourceFolder, iniFile, sec, destIniCache, options, variables, ref cmdArgs);
           }
         }
       }
@@ -1013,6 +1009,48 @@ namespace ToxikkServerLauncher
       return parts.ToArray();
     }
     #endregion
+
+
+    #region GetApplicableSections()
+    internal List<IniFile.Section> GetApplicableSections(string sectionName, bool mostSpecificFirst = false)
+    {
+      sectionName = sectionName.ToLower();
+      var list = new List<IniFile.Section>();
+      foreach (var sec in MainIni.Sections)
+      {
+        if (IsSectionApplicableToCurrentMachine(sec, sectionName))
+          list.Add(sec);
+      }
+
+      // sort list by generic, machine not excluded, machine specific - or reverse if mostSpecificFirst is true
+      list.Sort((s1, s2) =>
+      {
+        var c1 = s1.Name.IndexOf(':') < 0 ? -1 : s1.Name.IndexOf('!') < 0 ? 1 : 0;
+        var c2 = s2.Name.IndexOf(':') < 0 ? -1 : s2.Name.IndexOf('!') < 0 ? 1 : 0;
+        return c1.CompareTo(c2)*(mostSpecificFirst ? -1 : 1);
+      });
+      return list;
+    }
+    #endregion
+
+    #region IsSectionApplicableToCurrentMachine()
+    private bool IsSectionApplicableToCurrentMachine(IniFile.Section sec, string sectionName)
+    {
+      var name = sec.Name.ToLower();
+      if (name == sectionName)
+        return true;
+
+      if (!name.StartsWith(sectionName + ":"))
+        return false;
+
+      var machines = name.Substring(name.IndexOf(":") + 1).Replace(" ", "");
+      if (machines[0] == '!')
+        return !machines.Substring(1).Split(',').Contains(MachineName);
+
+      return machines.Split(',').Contains(MachineName);
+    }
+
+    #endregion
   }
 
   #region class LoopInfo
@@ -1055,3 +1093,4 @@ namespace ToxikkServerLauncher
   }
   #endregion
 }
+

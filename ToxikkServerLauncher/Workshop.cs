@@ -109,11 +109,8 @@ namespace ToxikkServerLauncher
     private List<ItemStatus> CheckItemStatus(bool forceUpdate)
     {
       var itemList = new List<ItemStatus>();
-      foreach (var sec in new[] { launcher.MainIni.GetSection("SteamWorkshop"), launcher.MainIni.GetSection("SteamWorkshop:" + launcher.MachineName) })
+      foreach (var sec in launcher.GetApplicableSections("SteamWorkshop"))
       {
-        if (sec == null)
-          continue;
-
         var items = sec.GetAll("Item");
         foreach (var item in items)
         {
@@ -139,6 +136,8 @@ namespace ToxikkServerLauncher
     }
     #endregion
 
+    
+
     #region DownloadWorkshopItems()
     private void DownloadSteamWorkshopItems(List<ItemStatus> items)
     {
@@ -151,11 +150,15 @@ namespace ToxikkServerLauncher
         return;
       }
 
-      var sec1 = launcher.MainIni.GetSection("SteamWorkshop:" + launcher.MachineName);
-      var sec2 = launcher.MainIni.GetSection("SteamWorkshop");
+      string user = null, pass = null;
+      foreach (var sec in launcher.GetApplicableSections("SteamWorkshop", true))
+      {
+        if (user == null)
+          user = sec.GetString("User");
+        if (pass == null)
+          pass = sec.GetString("Password");
+      }
 
-      var user = sec1?.GetString("User") ?? sec2.GetString("User");
-      var pass = sec1?.GetString("Password") ?? sec2.GetString("Password");
       if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(pass))
       {
         Utils.WriteLine("^EWARNING:^7 User/Password not configured in [SteamWorkshop], skipping workshop updates.");

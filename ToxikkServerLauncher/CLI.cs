@@ -7,7 +7,7 @@ namespace ToxikkServerLauncher
 {
   class CLI
   {
-    private const string Version = "2.20";
+    private const string Version = "2.21";
 
     [Flags]
     private enum ServerAction { Start = 0x01, Stop = 0x02, Restart = 0x03, Focus = 0x04 }
