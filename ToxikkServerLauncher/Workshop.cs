@@ -16,6 +16,7 @@ namespace ToxikkServerLauncher
   /// - TOXIKK game files through steamcmd
   /// - Steam Workshop items through steamcmd
   /// - non-workshop items through .zip file URLs
+  /// - http redirect folder
   /// </summary>
   public class Workshop
   {
@@ -57,28 +58,35 @@ namespace ToxikkServerLauncher
       this.launcher = launcher;
     }
 
-    #region UpdateWorkshop()
-    public void UpdateWorkshop(bool forceUpdate)
+    #region UpdateToxikk()
+
+    public void UpdateToxikk(bool validate)
     {
-      if (launcher.CleanWorkshop)
-        CleanWorkshopFolder();
+      Utils.WriteLine("Updating TOXIKK...\n");
 
-      var itemStatus = CheckItemStatus(forceUpdate);
-      DownloadSteamWorkshopItems(itemStatus);
-      DownloadZipItems(itemStatus);
+      string cmd = " +app_update 324810";
+      if (validate)
+        cmd += " validate";
 
-      if (launcher.SyncWorkshop)
-      {
-        Utils.WriteLine("Copying workshop item contents to TOXIKK and HTTP redirect folders...");
-        if (launcher.ServerProcessesRunning)
-          Utils.WriteLine("^EWARNING^7: TOXIKK.exe is already running, updates may fail.");
-        CopyWorkshopContent(itemStatus);
-      }
+      RunSteamcmd(cmd, launcher.ToxikkFolder);
     }
+
+    private string GetSteamUser()
+    {
+      string user = null;
+      foreach (var sec in launcher.GetApplicableSections("SteamWorkshop", true))
+      {
+        user = sec.GetString("User");
+        if (!string.IsNullOrWhiteSpace(user))
+          break;
+      }
+      return user;
+    }
+
     #endregion
 
     #region CleanWorkshopFolder()
-    private void CleanWorkshopFolder()
+    public void CleanWorkshopFolder()
     {
       // delete the manifest file to make sure we really download
       Utils.WriteLine("Cleaning " + launcher.WorkshopFolder);
@@ -103,6 +111,30 @@ namespace ToxikkServerLauncher
       }
     }
 
+    #endregion
+
+    #region UpdateWorkshop()
+    public void UpdateWorkshop(bool forceUpdate, bool steam, bool zip)
+    {
+      var itemStatus = CheckItemStatus(forceUpdate);
+      if (itemStatus.Count(e => e.RequireDownload) > 0)
+      {
+        Directory.CreateDirectory(launcher.WorkshopFolder);
+        if (steam)
+          DownloadSteamWorkshopItems(itemStatus);
+        if (zip)
+          DownloadZipItems(itemStatus);
+        CopyWorkshopContent(itemStatus);
+      }
+    }
+    #endregion
+
+    #region DeployWorkshopItems()
+    public void DeployWorkshopItems()
+    {
+      var items = CheckItemStatus(false);
+      CopyWorkshopContent(items);
+    }
     #endregion
 
     #region CheckItemStatus()
@@ -136,47 +168,47 @@ namespace ToxikkServerLauncher
     }
     #endregion
 
-    
-
     #region DownloadWorkshopItems()
+
     private void DownloadSteamWorkshopItems(List<ItemStatus> items)
     {
-      if (!launcher.UpdateToxikk && items.Count(e => e.RequireDownload && e.WorkshopId != 0) == 0)
+      var todo = items.Where(e => e.RequireDownload && e.WorkshopId != 0).ToList();
+      if (todo.Count == 0)
         return;
 
+      var sb = new StringBuilder();
+      foreach (var item in todo)
+        sb.Append(" +workshop_download_item 324810 ").Append(item.WorkshopId);
+
+      Utils.WriteLine("Updating " + todo.Count + " Steam workshop items...\n");
+      var baseFolder = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(launcher.WorkshopFolder))) ?? "", "steamapps");
+      RunSteamcmd(sb.ToString(), baseFolder);
+    }
+    #endregion
+
+    #region RunSteamcmd()
+    private void RunSteamcmd(string cmd, string forceInstallDir = null)
+    { 
       if (launcher.SteamcmdExe == null)
       {
-        Utils.WriteLine("^EWARNING:^7 Steamcmd not configured, skipping workshop updates.");
+        Utils.WriteLine("^EWARNING:^7 steamcmd.exe not found, skipping updates.");
         return;
       }
 
-      string user = null, pass = null;
-      foreach (var sec in launcher.GetApplicableSections("SteamWorkshop", true))
+      var user = GetSteamUser();
+      if (user == null)
       {
-        if (user == null)
-          user = sec.GetString("User");
-        if (pass == null)
-          pass = sec.GetString("Password");
-      }
-
-      if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(pass))
-      {
-        Utils.WriteLine("^EWARNING:^7 User/Password not configured in [SteamWorkshop], skipping workshop updates.");
+        Utils.WriteLine("^EWARNING:^7 User not configured in [SteamWorkshop], skipping updates.");
         return;
       }
 
       var sb = new StringBuilder();
-      sb.Append("+login ").Append(user).Append(" ").Append(pass);
-      if (launcher.UpdateToxikk)
-        sb.Append(" +force_install_dir \"").Append(launcher.ToxikkFolder).Append("\" +app_update 324810");
-      foreach (var item in items)
-      {
-        if (item.RequireDownload && item.WorkshopId != 0)
-          sb.Append(" +workshop_download_item 324810 ").Append(item.WorkshopId);
-      }
+      sb.Append("+login ").Append(user);
+      if (forceInstallDir != null)
+        sb.Append(" +force_install_dir \"").Append(forceInstallDir).Append("\"");
+      sb.Append(cmd);
       sb.Append(" +quit");
 
-      Utils.WriteLine("Updating TOXIKK and Steam Workshop Items...\n");
       var psi = new ProcessStartInfo(launcher.SteamcmdExe, sb.ToString());
       psi.UseShellExecute = false;
       var proc = Process.Start(psi);
@@ -188,15 +220,16 @@ namespace ToxikkServerLauncher
     #region DownloadZipItems()
     private void DownloadZipItems(List<ItemStatus> items)
     {
+      var todo = items.Where(e => e.RequireDownload && !string.IsNullOrEmpty(e.ZipUrl)).ToList();
+      if (todo.Count == 0)
+        return;
+
+#if PARALLEL
       CountdownEvent countdown = new CountdownEvent(1);
-      foreach (var item in items)
+      foreach (var item in todo)
       {
         var cli = new WebClient();
         cli.DownloadFileCompleted += OnDownloadZipItemCompleted;
-
-
-        if (!item.RequireDownload || string.IsNullOrEmpty(item.ZipUrl))
-          continue;
 
         Utils.WriteLine("Downloading " + item.ZipUrl + " ...");
         countdown.AddCount(1);
@@ -206,7 +239,22 @@ namespace ToxikkServerLauncher
       }
       countdown.Signal();
       countdown.Wait();
+#else
+      int i = 0;
+      foreach (var item in todo)
+      {
+        ++i;
+        var cli = new WebClient();
+        cli.DownloadFileCompleted += OnDownloadZipItemCompleted;
 
+        Utils.WriteLine("Downloading " + item.ZipUrl + " (" + i + "/" + todo.Count + ") ...");
+        var file = Path.Combine(launcher.WorkshopFolder, item.FolderName + ".zip");
+        File.Delete(file);
+        cli.DownloadFile(new Uri(item.ZipUrl), file);
+        var args = new AsyncCompletedEventArgs(null, false, new Tuple<string, ItemStatus, CountdownEvent>(file, item, null));
+        OnDownloadZipItemCompleted(cli, args);
+      }
+#endif      
     }
     #endregion
 
@@ -247,7 +295,7 @@ namespace ToxikkServerLauncher
           Utils.WriteLine("^CERROR:^7 Failed to extract " + file + ": " + ex.Message);
         }
       }
-      countdown.Signal();
+      countdown?.Signal();
       File.Delete(file);
       ((WebClient)sender).Dispose();
     }
@@ -258,6 +306,10 @@ namespace ToxikkServerLauncher
     {
       if (!Directory.Exists(launcher.WorkshopFolder))
         return;
+
+      Utils.WriteLine("Copying workshop item contents to TOXIKK and HTTP redirect folders...");
+      if (launcher.ServerProcessesRunning)
+        Utils.WriteLine("^EWARNING^7: TOXIKK.exe is already running, updates may fail.");
 
       if (launcher.HttpFolder == null)
         Utils.WriteLine("^EWARNING:^7 no HTTP redirect folder configured. Clients won't be able to auto-download workshop items.");

@@ -37,10 +37,6 @@ namespace ToxikkServerLauncher
     public bool Seekfreeloading { get; set; } = true;
     public bool Verbose { get; set; }
     public bool ShowCommandLine { get; set; }
-    public bool UpdateToxikk { get; set; } // update TOXIKK through steamcmd
-    public bool CleanWorkshop { get; set; } // purge steamcmd workshop
-    public bool UpdateWorkshop { get; set; } // update steamcmd workshop items
-    public bool SyncWorkshop { get; set; } // copy steamcmd workshop folder to TOXIKK\Workshop
     public string MachineName { get; private set; } = Environment.MachineName.ToLower();
     public bool ServerProcessesRunning => runningServers.Count > 0;
 
@@ -103,11 +99,6 @@ namespace ToxikkServerLauncher
     #region ReadLauncherConfig()
     private void ReadLauncherConfig(IniFile.Section section)
     {
-      this.UpdateToxikk |= section.GetBool("UpdateToxikk");
-      this.CleanWorkshop |= section.GetBool("CleanWorkshop");
-      this.UpdateWorkshop |= section.GetBool("UpdateWorkshop");
-      this.SyncWorkshop |= section.GetBool("SyncWorkshop");
-
       var steamcmdDir = section.GetString("SteamcmdDir");
       if (steamcmdDir != null && this.SteamcmdExe == null)
       {
@@ -321,7 +312,7 @@ namespace ToxikkServerLauncher
       {
         if (StopServer(id))
         {
-          workshop?.UpdateWorkshop(false);
+          workshop?.UpdateWorkshop(false, true, true);
           StartServer(id);
         }
       });
