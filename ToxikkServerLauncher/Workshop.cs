@@ -70,19 +70,6 @@ namespace ToxikkServerLauncher
 
       RunSteamcmd(cmd, launcher.ToxikkFolder);
     }
-
-    private string GetSteamUser()
-    {
-      string user = null;
-      foreach (var sec in launcher.GetApplicableSections("SteamWorkshop", true))
-      {
-        user = sec.GetString("User");
-        if (!string.IsNullOrWhiteSpace(user))
-          break;
-      }
-      return user;
-    }
-
     #endregion
 
     #region CleanWorkshopFolder()
@@ -195,26 +182,56 @@ namespace ToxikkServerLauncher
         return;
       }
 
-      var user = GetSteamUser();
-      if (user == null)
+      string user, pass;
+      if (!GetSteamLogin(out user, out pass))
       {
         Utils.WriteLine("^EWARNING:^7 User not configured in [SteamWorkshop], skipping updates.");
         return;
       }
 
       var sb = new StringBuilder();
-      sb.Append("+login ").Append(user);
+      sb.Append("+login ").Append(user).Append(pass != null ? " " + pass : "");
       if (forceInstallDir != null)
         sb.Append(" +force_install_dir \"").Append(forceInstallDir).Append("\"");
       sb.Append(cmd);
       sb.Append(" +quit");
 
+      // when not providing a password on the command line, steamcmd may prompt for the password or use a cached password
+      // in case of a cached password, steamcmd randomly exists with error code 5 when getting license information, so we have some retry logic here
       var psi = new ProcessStartInfo(launcher.SteamcmdExe, sb.ToString());
       psi.UseShellExecute = false;
-      var proc = Process.Start(psi);
-      proc?.WaitForExit();
-      Utils.WriteLine("\nSteam update complete.\n");
+      int attempt = 1;
+      bool retry;
+      do
+      {
+        retry = false;
+        var proc = Process.Start(psi);
+        if (proc == null)
+          Utils.WriteLine("\n^1ERROR:^7 Failed to start steamcmd.exe\n");
+        else
+        {
+          proc.WaitForExit();
+          Utils.WriteLine(proc.ExitCode == 0 ? "\nSteam update complete.\n" : "\n^EWARNING:^7 Steam update completed with exit code " + proc.ExitCode.ToString("x8") + ".\n");
+          retry = (proc.ExitCode & 0xFFFF) == 5 && attempt++ <= 5;
+        }
+      } while (retry);
     }
+    #endregion
+
+    #region GetSteamLogin()
+    private bool GetSteamLogin(out string user, out string pass)
+    {
+      user = pass = null;
+      foreach (var sec in launcher.GetApplicableSections("SteamWorkshop", true))
+      {
+        if (string.IsNullOrWhiteSpace(user))
+          user = sec.GetString("User");
+        if (string.IsNullOrWhiteSpace(pass))
+          pass = sec.GetString("Password");
+      }
+      return user != null;
+    }
+
     #endregion
 
     #region DownloadZipItems()
