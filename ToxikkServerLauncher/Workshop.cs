@@ -358,7 +358,8 @@ namespace ToxikkServerLauncher
         var dir = Path.Combine(launcher.WorkshopFolder, item.FolderName);
         try
         {
-          Directory.Delete(dir, true);
+          if (Directory.Exists(dir))
+            Directory.Delete(dir, true);
           zip.ExtractZip(file, dir, FastZip.Overwrite.Always, null, null, null, true);
 
           // if extracting the zip created paths like 324810\MyItem\MyItem, move the subfolders one level up

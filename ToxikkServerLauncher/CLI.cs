@@ -8,7 +8,7 @@ namespace ToxikkServerLauncher
 {
   class CLI
   {
-    private const string Version = "2.24";
+    private const string Version = "2.25";
     private const double WorkshopRedeployMinutes = 1.0;
 
     [Flags]
@@ -75,8 +75,6 @@ namespace ToxikkServerLauncher
     {
       // auto-run some commands that are set in the config file
       var section = launcher.MainIni.GetSection("ServerLauncher");
-      if (section.GetBool("SyncWorkshop"))
-        commands.Insert(0, "-sw");
       if (section.GetBool("UpdateWorkshop"))
         commands.Insert(0, "-uw");
       if (section.GetBool("CleanWorkshop"))
