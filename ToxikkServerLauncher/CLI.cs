@@ -8,7 +8,8 @@ namespace ToxikkServerLauncher
 {
   class CLI
   {
-    private const string Version = "2.22";
+    private const string Version = "2.24";
+    private const double WorkshopRedeployMinutes = 1.0;
 
     [Flags]
     private enum ServerAction { Start = 0x01, Stop = 0x02, Restart = 0x03, Focus = 0x04 }
@@ -17,6 +18,7 @@ namespace ToxikkServerLauncher
     private Workshop workshop;
     private bool interactive;
     private ServerAction action;
+    private DateTime lastWorkshopDeployment = DateTime.MinValue;
     private readonly Timer reloadTimer = new Timer(100);
 
     #region Run()
@@ -207,7 +209,14 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
         }
         if (action == ServerAction.Start)
         {
-          workshop.UpdateWorkshop(false, true, true);
+          bool redeployed = workshop.UpdateWorkshop(false, true, true);
+          if (redeployed)
+            lastWorkshopDeployment = DateTime.Now;
+          else if ((DateTime.Now - lastWorkshopDeployment).TotalMinutes >= WorkshopRedeployMinutes)
+          {
+            workshop.DeployWorkshopItems();
+            lastWorkshopDeployment = DateTime.Now;
+          }
           launcher.StartServer(cmdOrId);
         }
         else if (action == ServerAction.Restart)

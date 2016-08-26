@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using ICSharpCode.SharpZipLib.Zip;
 
@@ -101,18 +102,19 @@ namespace ToxikkServerLauncher
     #endregion
 
     #region UpdateWorkshop()
-    public void UpdateWorkshop(bool forceUpdate, bool steam, bool zip)
+    public bool UpdateWorkshop(bool forceUpdate, bool steam, bool zip)
     {
       var itemStatus = CheckItemStatus(forceUpdate);
-      if (itemStatus.Count(e => e.RequireDownload) > 0)
-      {
-        Directory.CreateDirectory(launcher.WorkshopFolder);
-        if (steam)
-          DownloadSteamWorkshopItems(itemStatus);
-        if (zip)
-          DownloadZipItems(itemStatus);
-        CopyWorkshopContent(itemStatus);
-      }
+      if (itemStatus.Count(e => e.RequireDownload) == 0)
+        return false;
+      
+      Directory.CreateDirectory(launcher.WorkshopFolder);
+      if (steam)
+        DownloadSteamWorkshopItems(itemStatus);
+      if (zip)
+        DownloadZipItems(itemStatus);
+      CopyWorkshopContent(itemStatus);
+      return true;
     }
     #endregion
 
@@ -200,6 +202,7 @@ namespace ToxikkServerLauncher
       // in case of a cached password, steamcmd randomly exists with error code 5 when getting license information, so we have some retry logic here
       var psi = new ProcessStartInfo(launcher.SteamcmdExe, sb.ToString());
       psi.UseShellExecute = false;
+      psi.RedirectStandardOutput = true;
       int attempt = 1;
       bool retry;
       do
@@ -210,12 +213,58 @@ namespace ToxikkServerLauncher
           Utils.WriteLine("\n^1ERROR:^7 Failed to start steamcmd.exe\n");
         else
         {
+          ProcessSteamcmdStdout(proc);
           proc.WaitForExit();
+
           Utils.WriteLine(proc.ExitCode == 0 ? "\nSteam update complete.\n" : "\n^EWARNING:^7 Steam update completed with exit code " + proc.ExitCode.ToString("x8") + ".\n");
           retry = (proc.ExitCode & 0xFFFF) == 5 && attempt++ <= 5;
         }
       } while (retry);
     }
+    #endregion
+
+    #region ProcessSteamcmdStdout()
+    private static void ProcessSteamcmdStdout(Process proc)
+    {
+      // reformat output to have item-id and download status on the same line and get rid of the file paths
+      var regex = new Regex(@"Downloaded item \d+ to .*? bytes\) ?");
+
+      char[] buffer = new char[1024];
+      string s = "";
+      int len;
+      do
+      {
+        len = proc.StandardOutput.Read(buffer, 0, buffer.Length);
+        if (len == 0)
+          s += "\r\n";
+        else
+          s += new string(buffer, 0, len);
+        int i;
+
+        // password-prompt ends without a newline
+        i = s.IndexOf("password:");
+        if (i >= 0)
+        {
+          Console.Write(s.Substring(0, i));
+          s = s.Substring(i + 9);
+          Console.Write("\nPassword: ");
+          Console.ForegroundColor = ConsoleColor.Black;
+          continue;
+        }
+
+        Console.ForegroundColor = ConsoleColor.Gray;
+        while ((i = s.IndexOf("\r\n")) >= 0)
+        {
+          string line = s.Substring(0, i);
+          line = regex.Replace(line, "\r\n");
+          s = s.Substring(i + 2);
+          Console.Write(line);
+          if (!line.EndsWith("..."))
+            Console.WriteLine();
+        }
+      } while (len > 0);
+    }
+
     #endregion
 
     #region GetSteamLogin()
@@ -229,6 +278,24 @@ namespace ToxikkServerLauncher
         if (string.IsNullOrWhiteSpace(pass))
           pass = sec.GetString("Password");
       }
+
+      // remove cached steam password, because that stuff is buggy as hell
+      if (pass == null)
+      {
+        var path = Path.Combine(Path.GetDirectoryName(launcher.SteamcmdExe) ?? "", @"config\config.vdf");
+        if (File.Exists(path))
+        {
+          var txt = File.ReadAllText(path);
+          int i = txt.IndexOf("\"ConnectCache\"");
+          i = txt.IndexOf("{", i);
+          i = txt.IndexOf("\n", i) + 1;
+          var j = txt.LastIndexOf('\n', txt.IndexOf("}", i)) + 1;
+
+          txt = txt.Substring(0, i) + txt.Substring(j);
+          File.WriteAllText(path, txt);
+        }
+      }
+
       return user != null;
     }
 
@@ -291,21 +358,26 @@ namespace ToxikkServerLauncher
         var dir = Path.Combine(launcher.WorkshopFolder, item.FolderName);
         try
         {
+          Directory.Delete(dir, true);
           zip.ExtractZip(file, dir, FastZip.Overwrite.Always, null, null, null, true);
 
-          // if extracting the zip created paths like 324810\MyItem\MyItem\Content, move the subfolders one level up
-          var dirItems = Directory.GetFileSystemEntries(dir);
-          if (dirItems.Length == 1 && Directory.Exists(Path.Combine(dir, item.FolderName)))
+          // if extracting the zip created paths like 324810\MyItem\MyItem, move the subfolders one level up
+          var dupePath = Path.Combine(dir, item.FolderName);
+          if (Directory.Exists(dupePath))
           {
-            foreach (var subDir in Directory.GetFileSystemEntries(dirItems[0]))
+            foreach (var subDir in Directory.GetFileSystemEntries(dupePath))
             {
+              // ReSharper disable AssignNullToNotNullAttribute
+              var target = Path.Combine(dir, Path.GetFileName(subDir));
               if (Directory.Exists(subDir))
-                Directory.Move(subDir, Path.Combine(dir, Path.GetFileName(subDir) ?? ""));
+                Directory.Move(subDir, target);
               else
-                File.Move(subDir, Path.Combine(dir, Path.GetFileName(subDir) ?? ""));
+                File.Move(subDir, target);
+              // ReSharper restore AssignNullToNotNullAttribute
             }
-            Directory.Delete(dirItems[0]);
+            Directory.Delete(dupePath);
           }
+          File.Delete(file);
         }
         catch (Exception ex)
         {
@@ -313,7 +385,6 @@ namespace ToxikkServerLauncher
         }
       }
       countdown?.Signal();
-      File.Delete(file);
       ((WebClient)sender).Dispose();
     }
     #endregion
