@@ -279,7 +279,15 @@ namespace ToxikkServerLauncher
           pass = sec.GetString("Password");
       }
 
-      // remove cached steam password, because that stuff is buggy as hell
+      if (string.IsNullOrWhiteSpace(user))
+        user = null;
+      if (user == null)
+        return false;
+
+      if (string.IsNullOrWhiteSpace(pass))
+        pass = null;
+
+      // remove cached steam password, because that stuff is buggy as hell in steamcmd.exe
       if (pass == null)
       {
         var path = Path.Combine(Path.GetDirectoryName(launcher.SteamcmdExe) ?? "", @"config\config.vdf");
@@ -296,7 +304,7 @@ namespace ToxikkServerLauncher
         }
       }
 
-      return user != null;
+      return true;
     }
 
     #endregion
