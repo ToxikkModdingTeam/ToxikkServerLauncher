@@ -8,7 +8,7 @@ namespace ToxikkServerLauncher
 {
   class CLI
   {
-    private const string Version = "2.25";
+    private const string Version = "2.26";
     private const double WorkshopRedeployMinutes = 1.0;
 
     [Flags]
@@ -59,9 +59,9 @@ namespace ToxikkServerLauncher
           commands = (Console.ReadLine() ?? "").Split(' ').ToList();
           if (commands.Count == 1 && commands[0] == "")
             continue;
-          launcher.FindRunningServers();
         }
 
+        launcher.FindRunningServers();
         foreach (var cmdOrId in commands)
           ProcessCommand(cmdOrId);
       } while (interactive);

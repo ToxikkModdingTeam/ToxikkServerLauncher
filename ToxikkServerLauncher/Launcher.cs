@@ -276,6 +276,7 @@ namespace ToxikkServerLauncher
           }
           catch
           {
+            File.Delete(pidFile);
           }
         }
       }
@@ -390,21 +391,31 @@ namespace ToxikkServerLauncher
     #endregion
 
     #region StartServer()
-    public void StartServer(string serverId)
+    /// <summary>
+    /// Before calling this method, make sure to call FindRunningServers() to prevent starting 2 instances of the same server
+    /// </summary>
+    public bool StartServer(string serverId)
     {
       if (serverId.Trim() == "")
-        return;
+        return false;
 
       var sectionName = serverId == "0" ? ClientSection : ServerSectionPrefix + serverId;
       var section = MainIni.GetSection(sectionName);
       if (section == null)
       {
-        Utils.WriteLine("^CNo configuration section for " + sectionName);
-        return;
+        Utils.WriteLine("^CERROR:^7No configuration section for " + sectionName);
+        return false;
       }
 
       if (serverId == "0")
         this.Dedicated = false;
+
+      if (this.GetServerProcess(serverId, false) != null)
+      {
+        Utils.WriteLine($"^EWARNING:^7 Server with ID {serverId} is already running");
+        return false;
+      }
+
 
       this.globalVariables["@cmdOrId@"] = serverId;
       this.globalVariables["@host@"] = MachineName;
@@ -412,13 +423,14 @@ namespace ToxikkServerLauncher
       var name = section.GetString("@ServerName") ?? ProcessValueMacros("", section.GetString("ServerName"), globalVariables) ?? sectionName;
       Utils.WriteLine("\nStarting " + name);
       string map, options, cmdArgs;
-      if (GenerateConfig(MainIni, section, out map, out options, out cmdArgs))
-      {
-        if (serverId == "0")
-          Process.Start("steam://rungameid/324810");
-        else
-          LaunchServer(map, options, cmdArgs, sectionName);
-      }
+      if (!GenerateConfig(MainIni, section, out map, out options, out cmdArgs))
+        return false;
+
+      if (serverId == "0")
+        Process.Start("steam://rungameid/324810");
+      else
+        LaunchServer(map, options, cmdArgs, sectionName);
+      return true;
     }
 
     #endregion
