@@ -2,12 +2,15 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using ICSharpCode.SharpZipLib.Zip;
 
 namespace ToxikkServerLauncher
@@ -113,7 +116,6 @@ namespace ToxikkServerLauncher
         DownloadSteamWorkshopItems(itemStatus);
       if (zip)
         DownloadZipItems(itemStatus);
-      CopyWorkshopContent(itemStatus);
       return true;
     }
     #endregion
@@ -336,27 +338,65 @@ namespace ToxikkServerLauncher
       foreach (var item in todo)
       {
         ++i;
-        var cli = new WebClient();
-        cli.DownloadFileCompleted += OnDownloadZipItemCompleted;
 
-        Utils.WriteLine("Downloading " + item.ZipUrl + " (" + i + "/" + todo.Count + ") ...");
-        var file = Path.Combine(launcher.WorkshopFolder, item.FolderName + ".zip");
+        Utils.Write(item.ZipUrl + " (" + i + "/" + todo.Count + ") ... ");
+
+        var dir = Path.Combine(launcher.WorkshopFolder, item.FolderName);
+
+        DateTime remoteDate;
+        using (var cli = new HttpClient())
+        {
+          var req = new HttpRequestMessage();
+          req.Method = HttpMethod.Head;
+          req.RequestUri = new Uri(item.ZipUrl);
+          var task = cli.SendAsync(req);
+          if (!task.Wait(1000))
+          {
+            Utils.WriteLine("^1timeout^7");
+            continue;
+          }
+          remoteDate = GetDateHeader(task.Result);
+        }
+
+        var localDate = File.GetLastWriteTimeUtc(dir);
+        if (remoteDate != DateTime.MinValue && Directory.Exists(dir) && Math.Abs((remoteDate - localDate).TotalSeconds) < 1)
+        {
+          Utils.WriteLine("up-to-date");
+          continue;
+        }
+
+        Utils.WriteLine("downloading");
+        var file = dir + ".zip";
         File.Delete(file);
-        cli.DownloadFile(new Uri(item.ZipUrl), file);
-        var args = new AsyncCompletedEventArgs(null, false, new Tuple<string, ItemStatus, CountdownEvent>(file, item, null));
-        OnDownloadZipItemCompleted(cli, args);
+        var wc = new WebClient();
+        wc.DownloadFile(new Uri(item.ZipUrl), file);
+        var args = new AsyncCompletedEventArgs(null, false, new Tuple<string, ItemStatus, CountdownEvent, DateTime>(file, item, null, remoteDate));
+        OnDownloadZipItemCompleted(wc, args);
       }
 #endif      
+    }
+    #endregion
+
+    #region GetDateHeader()
+    private static DateTime GetDateHeader(HttpResponseMessage msg)
+    {
+      foreach (var hdr in msg.Content.Headers)
+      {
+        if (hdr.Key == "Last-Modified")
+          return DateTime.ParseExact(((string[]) hdr.Value)[0], "r", CultureInfo.InvariantCulture);
+      }
+      return DateTime.MinValue;
     }
     #endregion
 
     #region OnDownloadZipItemCompleted()
     private void OnDownloadZipItemCompleted(object sender, AsyncCompletedEventArgs e)
     {
-      var context = (Tuple<string, ItemStatus, CountdownEvent>) e.UserState;
+      var context = (Tuple<string, ItemStatus, CountdownEvent, DateTime>) e.UserState;
       var file = context.Item1;
       var item = context.Item2;
       var countdown = context.Item3;
+      var date = context.Item4;
 
       if (e.Error != null)
         Utils.WriteLine("^CERROR:^7 Failed to download " + item.ZipUrl);
@@ -386,6 +426,8 @@ namespace ToxikkServerLauncher
             }
             Directory.Delete(dupePath);
           }
+          if (date != DateTime.MinValue)
+            Directory.SetLastWriteTimeUtc(dir, date);
           File.Delete(file);
         }
         catch (Exception ex)

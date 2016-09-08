@@ -8,7 +8,7 @@ namespace ToxikkServerLauncher
 {
   class CLI
   {
-    private const string Version = "2.26";
+    private const string Version = "2.28";
     private const double WorkshopRedeployMinutes = 1.0;
 
     [Flags]
@@ -207,10 +207,8 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
         }
         if (action == ServerAction.Start)
         {
-          bool redeployed = workshop.UpdateWorkshop(false, true, true);
-          if (redeployed)
-            lastWorkshopDeployment = DateTime.Now;
-          else if ((DateTime.Now - lastWorkshopDeployment).TotalMinutes >= WorkshopRedeployMinutes)
+          bool redeploy = workshop.UpdateWorkshop(false, true, true);
+          if (redeploy || (DateTime.Now - lastWorkshopDeployment).TotalMinutes >= WorkshopRedeployMinutes)
           {
             workshop.DeployWorkshopItems();
             lastWorkshopDeployment = DateTime.Now;
@@ -241,13 +239,25 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
       else if (cmdOrId == "cw" || cmdOrId == "cleanworkshop")
         workshop.CleanWorkshopFolder();
       else if (cmdOrId == "uw" || cmdOrId == "updateworkshop")
-        workshop.UpdateWorkshop(true, true, true);
+      {
+        if (workshop.UpdateWorkshop(true, true, true))
+          lastWorkshopDeployment = DateTime.MinValue;
+      }
       else if (cmdOrId == "us")
-        workshop.UpdateWorkshop(true, true, false);
+      {
+        if (workshop.UpdateWorkshop(true, true, false))
+          lastWorkshopDeployment = DateTime.MinValue;
+      }
       else if (cmdOrId == "uz")
-        workshop.UpdateWorkshop(true, false, true);
+      {
+        if (workshop.UpdateWorkshop(true, false, true))
+          lastWorkshopDeployment = DateTime.MinValue;
+      }
       else if (cmdOrId == "sw" || cmdOrId == "syncworkshop")
+      {
         workshop.DeployWorkshopItems();
+        lastWorkshopDeployment = DateTime.Now;
+      }
       else if (cmdOrId == "quit" || cmdOrId == "exit")
         interactive = false;
       else

@@ -281,7 +281,7 @@ namespace ToxikkServerLauncher
         }
       }
       if (showError)
-        Utils.WriteLine($"^EWARNING: Could not find process for server {id}");
+        Utils.WriteLine($"^EWARNING:^7 Could not find process for server {id}");
       return null;
     }
     #endregion
