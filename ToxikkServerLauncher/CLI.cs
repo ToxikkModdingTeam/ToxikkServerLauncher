@@ -8,11 +8,11 @@ namespace ToxikkServerLauncher
 {
   class CLI
   {
-    private const string Version = "2.28";
+    private const string Version = "2.30";
     private const double WorkshopRedeployMinutes = 1.0;
 
     [Flags]
-    private enum ServerAction { Start = 0x01, Stop = 0x02, Restart = 0x03, Focus = 0x04 }
+    private enum ServerAction { Start = 0x01, Stop = 0x02, Restart = 0x03, Focus = 0x04, Generate = 0x08 }
 
     private Launcher launcher;
     private Workshop workshop;
@@ -112,10 +112,11 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
   showCommand:         Print the generated TOXIKK.exe command line on screen before starting TOXIKK
   verbose, v:          More log output
   interactive, i:      Run in interactive command line interface mode
+  noSteamSockets:      Don't append ?steamsockets to the launch URL (can fix hanging client connections)
+  lan, inet:           Start server(s) in LAN or internet mode
 
 ^FExperimental commands^7:
   listen:              Start a listen server instead of a dedicated server
-  noSteamSockets:      Don't append ?steamsockets to the launch URL
   noSeekFreeLoading:   Don't append -seekfreeloading to the command line
 
 ");
@@ -215,6 +216,8 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
           }
           launcher.StartServer(cmdOrId);
         }
+        else if (action == ServerAction.Generate)
+          launcher.GenerateConfig(id);
         else if (action == ServerAction.Restart)
           launcher.RestartServer(cmdOrId, workshop);
         else if (action == ServerAction.Stop)
@@ -226,6 +229,8 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
         ShowHelp();
       else if (cmdOrId == "l" || cmdOrId == "list")
         ListConfigurations();
+      else if (cmdOrId == "g" || cmdOrId == "generate")
+        action = ServerAction.Generate;
       else if (cmdOrId == "s" || cmdOrId == "start")
         action = ServerAction.Start;
       else if (cmdOrId == "r" || cmdOrId == "restart")
@@ -289,6 +294,12 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
         case "interactive":
         case "i":
           this.interactive = true;
+          break;
+        case "lan":
+          launcher.Lan = true;
+          break;
+        case "inet":
+          launcher.Lan = false;
           break;
         default:
           Utils.Write($"^Eunknown command^7: {key}\n");

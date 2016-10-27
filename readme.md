@@ -1,4 +1,4 @@
-ToxikkServerLaucher (2.26)
+ToxikkServerLaucher (2.30)
 ===
 
 This tool centralizes configurations for many server instances on multiple machines.
@@ -7,6 +7,7 @@ Main features:
 - update TOXIKK and workshop items through steamcmd.exe
 - automatically copies downloaded workshop items to TOXIKK and HTTP redirect folders
 - single centralized configuration file used to dynamically generate config folders and files for individual servers and machines.
+- workaround for UE3's config wipe every time daylight saving time changes
 - builds the command line with server specific options needed to launch TOXIKK.exe as a dedicated server.
 - friendly settings names instead of the real INI or command line option names.
 - allows use of =, .=, +=, *= and -= to set/add/remove a value for/to/from an .ini setting array, option URL parameter or the TOXIKK command line.
@@ -21,6 +22,8 @@ or sections from other files, even in subdirectories. When using subdirectories,
 - @CmdLine+=... adds startup parameters to the command line (-= can be used to remove default startup options).  
 - @ServerName=... sets the label for the server in the menu (to override the server's ServerName shown in the server browser)
 - @myVar@=... defines a variable "myVar" and assigns a value
+- @SteamSockets=false deactivates the use of Steam Sockets, which are supposed to help NAT traversal, but can cause issues on their own
+- @SeekfreeLoading=false removes the "-seekfreeloading" option from the command line, which is added by default
 
 Assignment operators:
 = sets the setting to the right-hand-side of the assignment (overwriting previously defined values)

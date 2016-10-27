@@ -237,9 +237,14 @@ namespace ToxikkServerLauncher
           {
             idx = trimmedLine.IndexOf("=");
             if (idx <= 0)
-              continue;
-
-            if (SpecialAssignmentOperators.IndexOf(trimmedLine[idx - 1]) >= 0)
+            {
+              op = "";
+              key = trimmedLine;
+              idx = trimmedLine.Length - 1;
+              if (key == "")
+                continue;
+            }
+            else if (SpecialAssignmentOperators.IndexOf(trimmedLine[idx - 1]) >= 0)
             {
               op = trimmedLine[idx - 1] + "=";
               key = trimmedLine.Substring(0, idx - 1).Trim();

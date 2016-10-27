@@ -19,6 +19,7 @@ namespace ToxikkServerLauncher
     private static readonly Regex skillClassRegex = new Regex(@"^@skillclass,\s*(\d+)\s*$", RegexOptions.IgnoreCase);
     private static readonly Regex serverNumRegx = new Regex(@".*?\\" + ServerSectionPrefix + @"(\d+)");
     private static readonly Regex varNameRegex = new Regex(@"@((?:[A-Za-z_][A-Za-z0-9_]+)|(?:\d+(?:\.\d+)?))@");
+    private static readonly int[] SkillClassDifficulty = {0, 0, 1, 2, 3, 3, 4, 4, 5, 5, 5, 6, 7};
 
     private readonly string launcherFolder;
     private readonly HashSet<string> runningServers = new HashSet<string>();
@@ -33,6 +34,8 @@ namespace ToxikkServerLauncher
     public string ToxikkExe { get; private set; }
     public IniFile MainIni { get; private set; }
     public bool Dedicated { get; set; } = true;
+    public bool Server { get; set; } = true;
+    public bool Lan { get; set; } = false;
     public bool Steamsockets { get; set; } = true;
     public bool Seekfreeloading { get; set; } = true;
     public bool Verbose { get; set; }
@@ -408,7 +411,7 @@ namespace ToxikkServerLauncher
       }
 
       if (serverId == "0")
-        this.Dedicated = false;
+        this.Server = false;
 
       if (this.GetServerProcess(serverId, false) != null)
       {
@@ -436,9 +439,18 @@ namespace ToxikkServerLauncher
     #endregion
 
     #region GenerateConfig()
+
+    public void GenerateConfig(int id)
+    {
+      string map, opt, args;
+      var sec = id == 0 ? ClientSection : ServerSectionPrefix + id;
+      this.Server = id != 0;
+      GenerateConfig(this.MainIni, this.MainIni.GetSection(sec), out map, out opt, out args);
+    }
+
     private bool GenerateConfig(IniFile iniFile, IniFile.Section section, out string map, out string options, out string cmdArgs)
     {
-      var targetConfigFolder = this.Dedicated ? Path.Combine(ConfigFolder, section.Name) : this.ConfigFolder.TrimEnd('\\', '/');
+      var targetConfigFolder = this.Server ? Path.Combine(ConfigFolder, section.Name) : this.ConfigFolder.TrimEnd('\\', '/');
       CopyIniFilesToServerConfigFolder(targetConfigFolder, section);
 
       var destIniCache = new Dictionary<string, IniFile>();
@@ -446,9 +458,11 @@ namespace ToxikkServerLauncher
       var variableDict = new Dictionary<string, string>(globalVariables, StringComparer.InvariantCultureIgnoreCase);
       variableDict["@ConfigDir@"] = targetConfigFolder;
 
+      if (this.Lan)
+        optionDict["bIsLanMatch"] = "true";
 
       // default command line args, can be modified with @cmdline =, +=, -=
-      cmdArgs = Dedicated ? "-configsubdir=" + section.Name + " -nohomedir -unattended" : "-log -nostartupmovies";
+      cmdArgs = Server ? "-configsubdir=" + section.Name + " -nohomedir -unattended" : "-log -nostartupmovies";
       map = null;
 
       // recursive processing of a section and its @Import sections, then override everything with values from a more machine specific sections
@@ -466,11 +480,20 @@ namespace ToxikkServerLauncher
       optionDict.Remove("map");
       var sbOptions = new StringBuilder();
       foreach (var entry in optionDict)
-        sbOptions.Append("?").Append(entry.Key).Append("=").Append(entry.Value.Replace(' ', '_'));
+      {
+        sbOptions.Append("?").Append(entry.Key);
+        if (entry.Value != null)
+          sbOptions.Append("=").Append(entry.Value.Replace(' ', '_'));
+      }
 
       // save the ini files
       foreach (var destIni in destIniCache.Values)
         destIni.Save();
+
+      // correct timestamps inside UDK*.ini files so they match the corresponding Default*.ini file timestamps 
+      // with respect to the broken UE3 daylight saving offset of -1/0/+1 hours
+      var fixer = new IniFixer(targetConfigFolder);
+      fixer.FixTimestamps(true);
 
       options = sbOptions.ToString();
       return true;
@@ -480,7 +503,7 @@ namespace ToxikkServerLauncher
     #region CopyIniFilesToServerConfigFolder()
     private void CopyIniFilesToServerConfigFolder(string targetConfigFolder, IniFile.Section section)
     {
-      if (this.Dedicated)
+      if (this.Server)
       {
         // delete all files from the target config folder, except those matching a @Keep=... pattern
         if (Directory.Exists(targetConfigFolder))
@@ -508,7 +531,7 @@ namespace ToxikkServerLauncher
         FileCopy(file, Path.Combine(targetConfigFolder, fileName), true);
       }
 
-      if (this.Dedicated)
+      if (this.Server)
       {
         // copy all *.ini files from Workshop/Config folder (but don't overwrite existing files)
         var dir = Path.Combine(this.ToxikkFolder, @"UDKGame\Workshop\Config");
@@ -636,6 +659,10 @@ namespace ToxikkServerLauncher
                 ProcessCopyFile(targetConfigFolder, configSourceFolder, value);
               else if (lowerKey == "@cmdline")
                 ProcessCommandLineArg(ref cmdArgs, operation, value);
+              else if (lowerKey == "@steamsockets")
+                this.Steamsockets = (value ?? "").ToLower() == "true" || (value ?? "").ToLower() == "1";
+              else if (lowerKey == "@seekfreeloading")
+                this.Seekfreeloading = (value ?? "").ToLower() == "true" || (value ?? "").ToLower() == "1";
               else if (lowerKey.Length >= 3 && lowerKey.EndsWith("@"))
                 ProcessVariableDefinition(variables, lowerKey, value);
               else if (lowerKey == "@servername" || lowerKey == "@keep")
@@ -775,7 +802,11 @@ namespace ToxikkServerLauncher
       // @SkillClass,skillclass-value
       match = skillClassRegex.Match(value);
       if (match.Success)
-        return (int.Parse(match.Groups[1].Value)/1.5f).ToString();
+      {
+        int sc = int.Parse(match.Groups[1].Value);
+        sc = Math.Min(12, Math.Max(1, sc));
+        return SkillClassDifficulty[sc].ToString();
+      }
 
       // @Env,environment-variable-name
       if (value.StartsWith("@env,", StringComparison.InvariantCultureIgnoreCase))
@@ -923,7 +954,9 @@ namespace ToxikkServerLauncher
     #region ProcessUrlParameter()
     private static void ProcessUrlParameter(SortedDictionary<string, string> options, string operation, string mappedKey, string value)
     {
-      if (operation == "=")
+      if (operation == "")
+        options[mappedKey] = null;
+      else if (operation == "=")
         options[mappedKey] = value;
       else if (operation == ":=" || operation == "!=")
         options.Remove(mappedKey);
@@ -953,7 +986,7 @@ namespace ToxikkServerLauncher
     private void LaunchServer(string map, string options, string cmdArgs, string sectionName)
     {
       string args = "";
-      if (Dedicated)
+      if (Server)
         args = "server ";
 
       args += map;
@@ -965,7 +998,7 @@ namespace ToxikkServerLauncher
 
       args += options;
 
-      if (Steamsockets)
+      if (Steamsockets && !Lan)
         args += "?steamsockets";
 
       if (this.Seekfreeloading)
