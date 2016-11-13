@@ -8,7 +8,7 @@ namespace ToxikkServerLauncher
 {
   class CLI
   {
-    private const string Version = "2.30";
+    private const string Version = "2.31";
     private const double WorkshopRedeployMinutes = 1.0;
 
     [Flags]

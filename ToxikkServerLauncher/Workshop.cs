@@ -229,7 +229,8 @@ namespace ToxikkServerLauncher
     private static void ProcessSteamcmdStdout(Process proc)
     {
       // reformat output to have item-id and download status on the same line and get rid of the file paths
-      var regex = new Regex(@"Downloaded item \d+ to .*? bytes\) ?");
+      var regex1 = new Regex(@"(Downloaded item \d+ to .*? bytes\) ?)|(\)\.)");
+      var regex2 = new Regex(@"Download item \d+ failed \(");
 
       char[] buffer = new char[1024];
       string s = "";
@@ -255,12 +256,14 @@ namespace ToxikkServerLauncher
         }
 
         Console.ForegroundColor = ConsoleColor.Gray;
-        while ((i = s.IndexOf("\r\n")) >= 0)
+        s = s.Replace("\r", "");
+        while ((i = s.IndexOf('\n')) >= 0)
         {
           string line = s.Substring(0, i);
-          line = regex.Replace(line, "\r\n");
-          s = s.Substring(i + 2);
-          Console.Write(line);
+          line = regex2.Replace(line, "");
+          line = regex1.Replace(line, "\n");
+          s = s.Substring(i + 1);
+          Console.Write(line.Replace("\n", "\r\n"));
           if (!line.EndsWith("..."))
             Console.WriteLine();
         }
@@ -369,8 +372,16 @@ namespace ToxikkServerLauncher
         var file = dir + ".zip";
         File.Delete(file);
         var wc = new WebClient();
-        wc.DownloadFile(new Uri(item.ZipUrl), file);
-        var args = new AsyncCompletedEventArgs(null, false, new Tuple<string, ItemStatus, CountdownEvent, DateTime>(file, item, null, remoteDate));
+        AsyncCompletedEventArgs args;
+        try
+        {
+          wc.DownloadFile(new Uri(item.ZipUrl), file);
+          args = new AsyncCompletedEventArgs(null, false, new Tuple<string, ItemStatus, CountdownEvent, DateTime>(file, item, null, remoteDate));
+        }
+        catch (Exception ex)
+        {
+          args = new AsyncCompletedEventArgs(ex, false, new Tuple<string, ItemStatus, CountdownEvent, DateTime>(file, item, null, remoteDate));
+        }
         OnDownloadZipItemCompleted(wc, args);
       }
 #endif      
