@@ -19,7 +19,7 @@ namespace ToxikkServerLauncher
     private bool interactive;
     private ServerAction action;
     private DateTime lastWorkshopDeployment = DateTime.MinValue;
-    private readonly Timer reloadTimer = new Timer(100);
+    private readonly Timer reloadTimer = new Timer(1000);
 
     #region Run()
     public void Run(string[] args)
@@ -139,20 +139,12 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
 
     #region Load/ReloadMyServerConfigIni()
 
-    private bool LoadMyServerConfigIni()
-    { 
-      this.launcher = new Launcher();
-      if (!this.launcher.ReadServerConfig())
-        return false;
-
-      this.workshop = new Workshop(this.launcher);
-      this.launcher.FindRunningServers();
-      return true;
-    }
+    private volatile bool loading;
 
     private void DelayReloadMyServerConfigIni(object sender, FileSystemEventArgs e)
     {
-      if (e.Name != Path.GetFileName(this.launcher.MainIni.FileName))
+      var ini = this.launcher.MainIni?.FileName;
+      if (ini == null || e.Name != Path.GetFileName(ini))
         return;
       this.reloadTimer.Stop();
       this.reloadTimer.Start();
@@ -160,10 +152,34 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
 
     private void ReloadMyServerConfigIni(object sender, EventArgs e)
     {
+      if (loading)
+        return;
       Console.WriteLine("\n\nINFO: Reloading modified MyServerConfig.ini");
       LoadMyServerConfigIni();
       ListConfigurations();
       ShowInteractivePrompt();
+    }
+
+    private bool LoadMyServerConfigIni()
+    {
+      if (loading)
+        return false;
+
+      try
+      {
+        loading = true;
+        this.launcher = new Launcher();
+        if (!this.launcher.ReadServerConfig())
+          return false;
+
+        this.workshop = new Workshop(this.launcher);
+        this.launcher.FindRunningServers();
+        return true;
+      }
+      finally
+      {
+        loading = false;
+      }
     }
 
     #endregion
