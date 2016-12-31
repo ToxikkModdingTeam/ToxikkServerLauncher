@@ -36,7 +36,7 @@ namespace ToxikkServerLauncher
     public bool Dedicated { get; set; } = true;
     public bool Server { get; set; } = true;
     public bool Lan { get; set; } = false;
-    public bool Steamsockets { get; set; } = true;
+    public bool Steamsockets { get; set; }
     public bool Seekfreeloading { get; set; } = true;
     public bool Verbose { get; set; }
     public bool ShowCommandLine { get; set; }

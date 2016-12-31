@@ -5,8 +5,9 @@ This tool centralizes configurations for many server instances on multiple machi
 
 Main features:
 - update TOXIKK and workshop items through steamcmd.exe
+- allow non-workshop items to be installed from HTTP .zip archives
 - automatically copies downloaded workshop items to TOXIKK and HTTP redirect folders
-- single centralized configuration file used to dynamically generate config folders and files for individual servers and machines.
+- single centralized configuration file used to dynamically generate config folders and files for multiple machines and instances.
 - workaround for UE3's config wipe every time daylight saving time changes
 - builds the command line with server specific options needed to launch TOXIKK.exe as a dedicated server.
 - friendly settings names instead of the real INI or command line option names.
@@ -22,7 +23,7 @@ or sections from other files, even in subdirectories. When using subdirectories,
 - @CmdLine+=... adds startup parameters to the command line (-= can be used to remove default startup options).  
 - @ServerName=... sets the label for the server in the menu (to override the server's ServerName shown in the server browser)
 - @myVar@=... defines a variable "myVar" and assigns a value
-- @SteamSockets=false deactivates the use of Steam Sockets, which are supposed to help NAT traversal, but can cause issues on their own
+- @SteamSockets=true activates the use of Steam Sockets, which are supposed to help NAT traversal, but can cause issues on their own
 - @SeekfreeLoading=false removes the "-seekfreeloading" option from the command line, which is added by default
 
 Assignment operators:
@@ -67,7 +68,6 @@ You can also specify the configuration IDs on the command line to start the serv
 To auto-download updates from Steam, all TOXIKK.exe processes must be terminated first to unlock files.
 Use the command line option "-h" to get a list of all command line options.
 
-
 What it does
 ------------
 The launcher copies SteamApps\\Common\\TOXIKK\\UDKGame\\Config\\Default\*.ini to a DedicatedServerX subdirectory, overwriting any existing files.
@@ -110,8 +110,6 @@ All other sections have no implicit meaning, but can be used with @Import=\<sect
 Command line options
 --------------------
 Start the launcher with command line option -?, -h, -help or enter "help" on the server-id prompt to get the list of supported command line options.
-
-
 
 Compiling from source
 ---------------------

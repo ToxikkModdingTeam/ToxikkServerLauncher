@@ -69,6 +69,20 @@ namespace ToxikkServerLauncher
       Utils.WriteLine("Updating TOXIKK...\n");
 
       string cmd = " +app_update 324810";
+
+      foreach (var sec in launcher.GetApplicableSections("SteamWorkshop", true))
+      {
+        var betaName = sec.GetString("BetaName");
+        var betaPass = sec.GetString("BetaPassword");
+        if (!string.IsNullOrWhiteSpace(betaName))
+        {
+          cmd += " -beta " + betaName;
+          if (!string.IsNullOrWhiteSpace(betaPass))
+            cmd += " -betapassword " + betaPass;
+          break;
+        }
+      }     
+
       if (validate)
         cmd += " validate";
 

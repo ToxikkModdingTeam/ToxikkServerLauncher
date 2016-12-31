@@ -8,7 +8,7 @@ namespace ToxikkServerLauncher
 {
   class CLI
   {
-    private const string Version = "2.31";
+    private const string Version = "2.32";
     private const double WorkshopRedeployMinutes = 1.0;
 
     [Flags]
@@ -100,6 +100,7 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
   restart, r:          Restart servers with following ids
   stop, x:             Stop servers with the following ids
   focus, f:            Focuses the console window of the specified server id
+  generate, g:         Generates the specified server id's config folder without starting anything
   quit, exit:          Quit the server launcher
 
 ^FAdvanced commands^7:
@@ -109,15 +110,15 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
   us:                  Update steam workshop only (implies syncWorkshop)
   uz:                  Update zip workshop items only (implies syncWorkshop)
   syncWorkshop, sw:    Deploy workshop items to TOXIKK\UDKGame\Workshop and HTTP redirect folder
-  showCommand:         Print the generated TOXIKK.exe command line on screen before starting TOXIKK
-  verbose, v:          More log output
-  interactive, i:      Run in interactive command line interface mode
-  noSteamSockets:      Don't append ?steamsockets to the launch URL (can fix hanging client connections)
-  lan, inet:           Start server(s) in LAN or internet mode
+  showCommand[=1]:     Print the generated TOXIKK.exe command line on screen before starting TOXIKK
+  verbose, v[=1]:      More log output
+  interactive, i[=1]:  Run in interactive command line interface mode
+  steamSockets[=1]:    Append ?steamsockets to the launch URL (can aid NAT traversal, but hanging client connections)
+  lan[=1]:             Start server(s) in LAN or internet mode
 
 ^FExperimental commands^7:
-  listen:              Start a listen server instead of a dedicated server
-  noSeekFreeLoading:   Don't append -seekfreeloading to the command line
+  dedicated=0:         Start a listen server instead of a dedicated server
+  seekFreeLoading=0:   Don't append -seekfreeloading to the command line
 
 ");
     }
@@ -289,33 +290,34 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
     #region ProcessSwitch()
     private void ProcessSwitch(string key)
     {
+      var parts = key.Split('=');
+      key = parts[0];
+      bool on = parts.Length < 2 || ",on,y,yes,t,true,1,".IndexOf("," + parts[1].ToLower() + ",") >= 0;
+
       switch (key.ToLower())
       {
-        case "listen":
-          launcher.Dedicated = false;
+        case "dedicated":
+          launcher.Dedicated = on;
           break;
-        case "nosteamsockets":
-          launcher.Steamsockets = false;
+        case "steamsockets":
+          launcher.Steamsockets = on;
           break;
-        case "noseekfreeloading":
-          launcher.Seekfreeloading = false;
+        case "seekfreeloading":
+          launcher.Seekfreeloading = on;
           break;
         case "showcommand":
-          launcher.ShowCommandLine = true;
+          launcher.ShowCommandLine = on;
           break;
         case "verbose":
         case "v":
-          launcher.Verbose = true;
+          launcher.Verbose = on;
           break;
         case "interactive":
         case "i":
-          this.interactive = true;
+          this.interactive = on;
           break;
         case "lan":
-          launcher.Lan = true;
-          break;
-        case "inet":
-          launcher.Lan = false;
+          launcher.Lan = on;
           break;
         default:
           Utils.Write($"^Eunknown command^7: {key}\n");
