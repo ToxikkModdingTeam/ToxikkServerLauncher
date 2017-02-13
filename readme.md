@@ -90,6 +90,7 @@ If you use the file for multiple machines, you can also define a \[ServerLaunche
 The \[SteamWorkshop\] section contains your login information and the workshop item numbers you want to download/update.
 If you use the file for multiple machines, you can also define a \[SteamWorkshop:\<machinename\>\] section which will replace the default section as a whole for a machine.
 The value for Item=... entries can either be a numeric steam workshop ID, a URL to a .zip file or a local subdirectory name of your workshop folder.
+You can use DeleteItem=... to specify workshop IDs/folder names to be deleted.
 
 The \[SimpleNames\] section can be used to define friendlier names to be used inside your other sections instead of the full INI path or command line option name.
 There are no machine specific overrides for this section.

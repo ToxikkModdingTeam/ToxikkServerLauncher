@@ -126,12 +126,44 @@ namespace ToxikkServerLauncher
         return false;
       
       Directory.CreateDirectory(launcher.WorkshopFolder);
+
+      DeleteWorkshopItems();
+
       if (steam)
         DownloadSteamWorkshopItems(itemStatus);
       if (zip)
         DownloadZipItems(itemStatus);
       return true;
     }
+    #endregion
+
+    #region DeleteWorkshopItems()
+    private void DeleteWorkshopItems()
+    {
+      foreach (var sec in launcher.GetApplicableSections("SteamWorkshop"))
+      {
+        var items = sec.GetAll("DeleteItem");
+        foreach (var item in items)
+        {
+          var itemSubDir = item.Value;
+          if (string.IsNullOrWhiteSpace(itemSubDir))
+            continue;
+          int idx = itemSubDir.IndexOf(";");
+          if (idx > 0) itemSubDir = itemSubDir.Substring(0, idx).Trim();
+          string folder = Path.Combine(launcher.WorkshopFolder, itemSubDir);
+          try
+          {
+            if (Directory.Exists(folder))
+              Directory.Delete(folder, true);
+          }
+          catch
+          {
+            Utils.WriteLine("^1ERROR^7 deleting " + folder);
+          }
+        }
+      }
+    }
+
     #endregion
 
     #region DeployWorkshopItems()
