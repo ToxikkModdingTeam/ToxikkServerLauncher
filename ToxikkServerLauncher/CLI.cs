@@ -2,17 +2,18 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Timers;
 
 namespace ToxikkServerLauncher
 {
   class CLI
   {
-    private const string Version = "2.33";
+    private const string Version = "2.36.1";
     private const double WorkshopRedeployMinutes = 1.0;
 
     [Flags]
-    private enum ServerAction { Start = 0x01, Stop = 0x02, Restart = 0x03, Focus = 0x04, Generate = 0x08 }
+    private enum ServerAction { Start = 0x01, Stop = 0x02, Restart = 0x03, Focus = 0x04, Generate = 0x08, Test = 0x10 }
 
     private Launcher launcher;
     private Workshop workshop;
@@ -20,9 +21,10 @@ namespace ToxikkServerLauncher
     private ServerAction action;
     private DateTime lastWorkshopDeployment = DateTime.MinValue;
     private readonly Timer reloadTimer = new Timer(1000);
+    private int exitCode = 0;
 
     #region Run()
-    public void Run(string[] args)
+    public int Run(string[] args)
     {
       FileSystemWatcher watcher = null;
       bool showList = false;
@@ -30,7 +32,7 @@ namespace ToxikkServerLauncher
       Utils.Write("^AToxikkServerLauncher " + Version + "^7\nhttps://github.com/ToxikkModdingTeam/ToxikkServerLauncher\n");
 
       if (!LoadMyServerConfigIni())
-        return;
+        return 255;
 
       // setup interactive mode when no server IDs were specified on the command line
       var commands = args.ToList();
@@ -67,6 +69,7 @@ namespace ToxikkServerLauncher
       } while (interactive);
 
       watcher?.Dispose();
+      return exitCode;
     }
     #endregion
 
@@ -101,6 +104,7 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
   stop, x:             Stop servers with the following ids
   focus, f:            Focuses the console window of the specified server id
   generate, g:         Generates the specified server id's config folder without starting anything
+  test, t:             Test if the specified server(s) are running. Exit code is the number of server that are NOT running
   quit, exit:          Quit the server launcher
 
 ^FAdvanced commands^7:
@@ -115,6 +119,9 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
   interactive, i[=1]:  Run in interactive command line interface mode
   steamSockets[=1]:    Append ?steamsockets to the launch URL (can aid NAT traversal, but hanging client connections)
   lan[=1]:             Start server(s) in LAN or internet mode
+
+^FVariables^7:
+  @variable@=value     Sets a value for a variable. Inside the INI you can define a default with @variable@ ?= value
 
 ^FExperimental commands^7:
   dedicated=0:         Start a listen server instead of a dedicated server
@@ -211,37 +218,18 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
     private void ProcessCommand(string cmdOrId)
     {
       int id;
+      var regexVar = new Regex(@"^(@[0-9A-Za-z_]+@)\s*(.?=)\s*(.*)$");
+      Match match;
 
       if (cmdOrId.StartsWith("-"))
         cmdOrId = cmdOrId.Substring(1);
 
       if (int.TryParse(cmdOrId, out id))
-      {
-        var secName = id == 0 ? "Client" : Launcher.ServerSectionPrefix + cmdOrId;
-        if (launcher.MainIni.GetSection(secName) == null)
-        {
-          Utils.WriteLine($"^CERROR:^7 No configuration with ID {cmdOrId}");
-          return;
-        }
-        if (action == ServerAction.Start)
-        {
-          bool redeploy = workshop.UpdateWorkshop(false, true, true);
-          if (redeploy || (DateTime.Now - lastWorkshopDeployment).TotalMinutes >= WorkshopRedeployMinutes)
-          {
-            workshop.DeployWorkshopItems();
-            lastWorkshopDeployment = DateTime.Now;
-          }
-          launcher.StartServer(cmdOrId);
-        }
-        else if (action == ServerAction.Generate)
-          launcher.GenerateConfig(id);
-        else if (action == ServerAction.Restart)
-          launcher.RestartServer(cmdOrId, workshop);
-        else if (action == ServerAction.Stop)
-          launcher.StopServer(cmdOrId);
-        else if (action == ServerAction.Focus)
-          launcher.FocusServerConsole(cmdOrId);
-      }
+        ExecuteAction(cmdOrId);
+      else if (cmdOrId == "*")
+        GlobAction();
+      else if ((match = regexVar.Match(cmdOrId)).Success)
+        launcher.SetGlobalVariable(match.Groups[1].Value, match.Groups[2].Value, match.Groups[3].Value);
       else if (cmdOrId == "h" || cmdOrId == "?" || cmdOrId == "help")
         ShowHelp();
       else if (cmdOrId == "l" || cmdOrId == "list")
@@ -256,6 +244,11 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
         action = ServerAction.Stop;
       else if (cmdOrId == "f" || cmdOrId == "focus")
         action = ServerAction.Focus;
+      else if (cmdOrId == "t" || cmdOrId == "test")
+      {
+        action = ServerAction.Test;
+        exitCode = 0;
+      }
       else if (cmdOrId == "ut" || cmdOrId == "updatetoxikk")
         workshop.UpdateToxikk(true);
       else if (cmdOrId == "cw" || cmdOrId == "cleanworkshop")
@@ -285,6 +278,65 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
       else
         ProcessSwitch(cmdOrId);
     }
+    #endregion
+
+    #region ExecuteAction()
+    private void ExecuteAction(string cmdOrId)
+    {
+      int id = int.Parse(cmdOrId);
+      var secName = id == 0 ? "Client" : Launcher.ServerSectionPrefix + cmdOrId;
+      if (launcher.MainIni.GetSection(secName) == null)
+      {
+        Utils.WriteLine($"^CERROR:^7 No configuration with ID {cmdOrId}");
+        return;
+      }
+      if (action == ServerAction.Start)
+      {
+        bool redeploy = workshop.UpdateWorkshop(false, true, true);
+        if (redeploy || (DateTime.Now - lastWorkshopDeployment).TotalMinutes >= WorkshopRedeployMinutes)
+        {
+          workshop.DeployWorkshopItems();
+          lastWorkshopDeployment = DateTime.Now;
+        }
+        launcher.StartServer(cmdOrId);
+      }
+      else if (action == ServerAction.Generate)
+        launcher.GenerateConfig(id);
+      else if (action == ServerAction.Restart)
+        launcher.RestartServer(cmdOrId, workshop);
+      else if (action == ServerAction.Stop)
+        launcher.StopServer(cmdOrId);
+      else if (action == ServerAction.Focus)
+        launcher.FocusServerConsole(cmdOrId);
+      else if (action == ServerAction.Test)
+      {
+        var isRunning = launcher.GetConfigurations().Any(i => i.ID == cmdOrId && i.IsRunning);
+        Utils.WriteLine("DedicatedServer" + cmdOrId + " is " + (isRunning ? "" : "^CNOT^7 ") + "running");
+        exitCode += isRunning ? 0 : 1;
+      }
+    }
+
+    #endregion
+
+    #region GlobAction()
+    private void GlobAction()
+    {
+      foreach (var sec in launcher.MainIni.Sections)
+      {
+        if (!sec.Name.StartsWith(Launcher.ServerSectionPrefix))
+          continue;
+        string sid = sec.Name.Substring(Launcher.ServerSectionPrefix.Length);
+        if (action == ServerAction.Start || action == ServerAction.Generate || action == ServerAction.Test)
+          ExecuteAction(sid);
+        else if (action == ServerAction.Stop || action == ServerAction.Restart)
+        {
+          var isRunning = launcher.GetConfigurations().Any(i => i.ID == sid && i.IsRunning);
+          if (isRunning)
+            ExecuteAction(sid);
+        }
+      }
+    }
+
     #endregion
 
     #region ProcessSwitch()

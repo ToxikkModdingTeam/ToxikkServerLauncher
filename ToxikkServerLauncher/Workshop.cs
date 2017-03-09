@@ -258,7 +258,7 @@ namespace ToxikkServerLauncher
         retry = false;
         var proc = Process.Start(psi);
         if (proc == null)
-          Utils.WriteLine("\n^1ERROR:^7 Failed to start steamcmd.exe\n");
+          Utils.WriteLine("\n^CERROR:^7 Failed to start steamcmd.exe\n");
         else
         {
           ProcessSteamcmdStdout(proc);

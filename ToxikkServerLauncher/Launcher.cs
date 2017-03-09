@@ -99,6 +99,11 @@ namespace ToxikkServerLauncher
     }
     #endregion
 
+    public void SetGlobalVariable(string variable, string op, string value)
+    {
+      ProcessVariableDefinition(globalVariables, op, variable, value);
+    }
+
     #region ReadLauncherConfig()
     private void ReadLauncherConfig(IniFile.Section section)
     {
@@ -131,8 +136,11 @@ namespace ToxikkServerLauncher
       // parse @varname@=value lines
       foreach (var key in section.Keys)
       {
-        if (key.Length >= 3 && key.StartsWith("@") && key.EndsWith("@"))
-          ProcessVariableDefinition(this.globalVariables, key, ProcessValueMacros("", section.GetString(key), this.globalVariables));
+        foreach (var entry in section.GetAll(key))
+        {
+          if (key.Length >= 3 && key.StartsWith("@") && key.EndsWith("@"))
+            ProcessVariableDefinition(this.globalVariables, entry.Operator, key, entry.Value);
+        }
       }
     }
     #endregion
@@ -664,7 +672,7 @@ namespace ToxikkServerLauncher
               else if (lowerKey == "@seekfreeloading")
                 this.Seekfreeloading = (value ?? "").ToLower() == "true" || (value ?? "").ToLower() == "1";
               else if (lowerKey.Length >= 3 && lowerKey.EndsWith("@"))
-                ProcessVariableDefinition(variables, lowerKey, value);
+                ProcessVariableDefinition(variables, operation, lowerKey, value);
               else if (lowerKey == "@servername" || lowerKey == "@keep")
               {
               }
@@ -834,6 +842,11 @@ namespace ToxikkServerLauncher
       var destSec = destIni.GetSection(configMapping[1], true);
       if (operation == "=")
         destSec.Set(configMapping[2], value);
+      else if (operation == "?=")
+      {
+        if (!destSec.Keys.Contains(configMapping[2]) || destSec.GetAll(configMapping[2]).Count == 0)
+          destSec.Set(configMapping[2], value);
+      }
       else if (operation == ":=" || operation == "!=")
         destSec.Remove(configMapping[2]);
       else if (operation == ".=")
@@ -929,6 +942,11 @@ namespace ToxikkServerLauncher
     {
       if (operation == "=")
         cmdArgs = value;
+      else if (operation == "?=")
+      {
+        if (cmdArgs == "")
+          cmdArgs = value;
+      }
       else if (operation == "+=")
       {
         if (!cmdArgs.Contains(" " + value + " ") && !cmdArgs.EndsWith(" " + value))
@@ -945,38 +963,59 @@ namespace ToxikkServerLauncher
     #endregion
 
     #region ProcessVariableDefinition()
-    private static void ProcessVariableDefinition(Dictionary<string, string> variables, string mappedKey, string value)
+    private void ProcessVariableDefinition(IDictionary<string, string> variables, string op, string varName, string value)
     {
-      variables[mappedKey] = value;
+      value = ProcessValueMacros("", value, this.globalVariables);
+      ProcessUrlParameter(variables, op, varName, value); // reuse the code, but that has nothing to do with URL parameters
     }
     #endregion
 
     #region ProcessUrlParameter()
-    private static void ProcessUrlParameter(SortedDictionary<string, string> options, string operation, string mappedKey, string value)
+    private static void ProcessUrlParameter(IDictionary<string, string> options, string operation, string mappedKey, string fullValue)
     {
       if (operation == "")
         options[mappedKey] = null;
-      else if (operation == "=")
-        options[mappedKey] = value;
       else if (operation == ":=" || operation == "!=")
         options.Remove(mappedKey);
-      else if (operation == "+=")
+      else if (operation == "=")
+        options[mappedKey] = fullValue;
+      else if (operation == "?=")
       {
-        string oldValue;
-        if (!options.TryGetValue(mappedKey, out oldValue) || (oldValue != value && !oldValue.Contains("," + value)))
-          options[mappedKey] = oldValue == null ? value : oldValue + "," + value;
+        if (!options.ContainsKey(mappedKey) || options[mappedKey] == "")
+          options[mappedKey] = fullValue;
       }
-      else if (operation == "*=")
+      else
       {
-        string oldValue;
-        if (!options.TryGetValue(mappedKey, out oldValue) || (oldValue != value && !oldValue.Contains("," + value)))
-          options[mappedKey] = oldValue == null ? value : value + "," + oldValue;
-      }
-      else if (operation == "-=")
-      {
-        string oldValue;
-        if (options.TryGetValue(mappedKey, out oldValue))
-          options[mappedKey] = oldValue.Replace(value, "").Replace(",,", ",").Trim(',');
+        IEnumerable<string> values = SplitUnquoted(fullValue, ',');
+        if (operation == "*=") // prepend multiple values, but keep the values in the specified order
+          values = values.Reverse();
+
+        foreach (var value in values)
+        {
+          string oldValue;
+          options.TryGetValue(mappedKey, out oldValue);
+
+          if (operation == ".=")
+            options[mappedKey] = string.IsNullOrEmpty(oldValue) ? value : oldValue + "," + value;
+          else if (operation == "+=")
+          {
+            if (oldValue == null || !("," + oldValue + ",").Contains("," + value + ","))
+              options[mappedKey] = string.IsNullOrEmpty(oldValue) ? value : oldValue + "," + value;
+          }
+          else if (operation == "*=")
+          {
+            if (oldValue == null || !("," + oldValue + ",").Contains("," + value + ","))
+              options[mappedKey] = string.IsNullOrEmpty(oldValue) ? value : value + "," + oldValue;
+          }
+          else if (operation == "-=")
+          {
+            if (oldValue != null)
+            {
+              oldValue = "," + oldValue + ",";
+              options[mappedKey] = oldValue.Replace("," + value + ",", ",").Replace(",,", ",").Trim(',');
+            }
+          }
+        }
       }
     }
 
@@ -1023,7 +1062,7 @@ namespace ToxikkServerLauncher
     #endregion
 
     #region SplitUnquoted()
-    private string[] SplitUnquoted(string input, char separator)
+    private static string[] SplitUnquoted(string input, char separator)
     {
       List<string> parts = new List<string>();
       StringBuilder part = new StringBuilder();

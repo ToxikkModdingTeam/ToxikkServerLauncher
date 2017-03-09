@@ -1,4 +1,4 @@
-ToxikkServerLaucher (2.30)
+ToxikkServerLaucher (2.36)
 ===
 
 This tool centralizes configurations for many server instances on multiple machines.
@@ -28,6 +28,7 @@ or sections from other files, even in subdirectories. When using subdirectories,
 
 Assignment operators:
 = sets the setting to the right-hand-side of the assignment (overwriting previously defined values)
+?= sets the setting to the right-hand-side, if the current value is undefined or empty
 != unsets the setting (useful to reset a list before adding values)
 := same as !=
 .= appends the RHS value to the setting, allowing duplicates

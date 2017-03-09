@@ -2,10 +2,10 @@
 {
   class Program
   {
-    static void Main(string[] args)
+    static int Main(string[] args)
     {
       var cli = new CLI();
-      cli.Run(args);
+      return cli.Run(args);
     }
   }
 }
