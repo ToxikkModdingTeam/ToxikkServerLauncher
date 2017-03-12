@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -391,13 +392,43 @@ namespace ToxikkServerLauncher
       {
         if (section.Name.StartsWith(ServerSectionPrefix) && !section.Name.Contains(":"))
         {
-          var name = section.GetString("@ServerName") ?? section.GetString("ServerName");
+          var name = section.GetString("@ServerName") ?? UrlDecode(section.GetString("ServerName"));
           name = ProcessValueMacros("", name, this.globalVariables);
           var id = section.Name.Substring(ServerSectionPrefix.Length);
           list.Add(new ServerInfo(id, name, this.runningServers.Contains(id)));
         }
       }
       return list;
+    }
+
+    // ServerName may include _ for spaces and $xx to escape special characters as hex codes
+    // The server must be running the MutatH0r.CRZMutator_ServerDescription mutator to support this
+    private string UrlDecode(string input)
+    {
+      const string HexDigits = "0123456789ABCDEF";
+
+      var sb = new StringBuilder();
+      int i;
+      for (i = 0; i < input.Length - 2; i++)
+      {
+        var c = input[i];
+        if (c == '_')
+          c = ' ';
+        else if (c == '$')
+        {
+          var d1 = HexDigits.IndexOf(input[i + 1]);
+          var d2 = HexDigits.IndexOf(input[i + 2]);
+          if (d1 >= 0 && d2 >= 0)
+          {
+            sb.Append((char) (d1*16 + d2));
+            i += 2;
+            continue;
+          }
+        }
+        sb.Append(c);
+      }
+      sb.Append(input.Substring(i));
+      return sb.ToString();
     }
     #endregion
 
@@ -643,7 +674,16 @@ namespace ToxikkServerLauncher
       {
         foreach (var rawValue in section.GetAll(unmappedKey))
         {
+          var operation = rawValue.Operator; // =, += or -=
           var loopInfo = ProcessCrossProductLoop(rawValue.Value, targetConfigFolder, variables);
+
+          // if a @loop uses the "=" operator, treat it as a "!=" resetting the list and then "+=" to add items
+          if (loopInfo.IsLoop && operation == "=")
+          {
+            ProcessSetting(targetConfigFolder, configSourceFolder, iniFile, destIniCache, options, variables, ref cmdArgs, null, unmappedKey, "!=", null);
+            operation = "+=";
+          }
+
           foreach (var loopArgs in loopInfo.CombinationValues)
           {
             // set variables for the current combination
@@ -655,42 +695,8 @@ namespace ToxikkServerLauncher
                 variables["@" + (i + 1) + "." + (j + 1) + "@"] = parts[j];
             }
 
-            var operation = rawValue.Operator; // =, += or -=
             var value = ProcessValueMacros(targetConfigFolder, loopInfo.Template, variables);
-
-            if (unmappedKey.StartsWith("@"))
-            {
-              var lowerKey = unmappedKey.ToLower();
-              if (lowerKey == "@import")
-                ProcessImport(targetConfigFolder, configSourceFolder, iniFile, destIniCache, options, variables, ref cmdArgs, value);
-              else if (lowerKey == "@copy" || lowerKey == "@copyfiles") // @copyfiles is legacy name
-                ProcessCopyFile(targetConfigFolder, configSourceFolder, value);
-              else if (lowerKey == "@cmdline")
-                ProcessCommandLineArg(ref cmdArgs, operation, value);
-              else if (lowerKey == "@steamsockets")
-                this.Steamsockets = (value ?? "").ToLower() == "true" || (value ?? "").ToLower() == "1";
-              else if (lowerKey == "@seekfreeloading")
-                this.Seekfreeloading = (value ?? "").ToLower() == "true" || (value ?? "").ToLower() == "1";
-              else if (lowerKey.Length >= 3 && lowerKey.EndsWith("@"))
-                ProcessVariableDefinition(variables, operation, lowerKey, value);
-              else if (lowerKey == "@servername" || lowerKey == "@keep")
-              {
-              }
-              else
-                Utils.WriteLine($"^EWARNING: ignoring unknown directive: {unmappedKey}={rawValue.Value}");
-            }
-            else
-            {
-              string mappedKey;
-              if (!simpleNames.TryGetValue(unmappedKey, out mappedKey))
-                mappedKey = unmappedKey;
-
-              var configMapping = mappedKey.Split('\\');
-              if (configMapping.Length == 3)
-                ProcessIniSetting(targetConfigFolder, destIniCache, operation, configMapping, value);
-              else
-                ProcessUrlParameter(options, operation, mappedKey, value);
-            }
+            ProcessSetting(targetConfigFolder, configSourceFolder, iniFile, destIniCache, options, variables, ref cmdArgs, rawValue, unmappedKey, operation, value);
           }
         }
       }
@@ -709,8 +715,8 @@ namespace ToxikkServerLauncher
 
       rawValue = ProcessValueMacros(targetConfigFolder, rawValue, variables, false);
 
-      int colon;
-      var loops = ExtractLoopList(rawValue, out colon);
+      int startOfTemplate;
+      var loops = ExtractLoopList(rawValue, out startOfTemplate);
       if (loops.Count == 0)
       {
         Utils.WriteLine($"^CWARNING: bad @loop statement: {rawValue}");
@@ -737,40 +743,92 @@ namespace ToxikkServerLauncher
         }
         result.Add(combination);
       }
-      return new LoopInfo(rawValue.Substring(colon+1), result);
+      return new LoopInfo(rawValue.Substring(startOfTemplate), result);
     }
 
     /// <summary>
     /// Extract the text enclosed by {...} until we find a ':'
     /// </summary>
-    private List<string> ExtractLoopList(string rawValue, out int colon)
+    private List<string> ExtractLoopList(string rawValue, out int startOfTemplate)
     {
       List<string> loops = new List<string>();
-      colon = -1;
+      startOfTemplate = 0;
       for (int i = 6, len = rawValue.Length; i < len;)
       {
-        int open = rawValue.IndexOf('{', i);
-        colon = rawValue.IndexOf(':', i);
-        if (open >= 0 && open < colon)
+        if (rawValue[i] == ':') // old syntax required a colon between the last {...} and the template
         {
-          int close = rawValue.IndexOf('}', open);
+          startOfTemplate = i + 1;
+          break;
+        }
+        if (char.IsWhiteSpace(rawValue[i]))
+        {
+          ++i;
+          continue;
+        }
+        if (rawValue[i] == '{')
+        {
+          int close = rawValue.IndexOf('}', i);
           if (close < 0)
           {
-            colon = -1;
+            startOfTemplate = 0;
+            loops.Clear();
             break;
           }
-          loops.Add(rawValue.Substring(open + 1, close - (open + 1)));
+          loops.Add(rawValue.Substring(i + 1, close - (i + 1)));
           i = close + 1;
         }
-        else if (colon >= 0 || open < 0)
+        else
+        {
+          // new syntax doesn't require a colon. the template can start right after the last {...}
+          startOfTemplate = i;
           break;
+        }
       }
 
-      if (colon < 0)
-        loops.Clear();
       return loops;
     }
 
+    #endregion
+
+    #region ProcessSetting()
+    private void ProcessSetting(string targetConfigFolder, string configSourceFolder, IniFile iniFile, Dictionary<string, IniFile> destIniCache,
+      SortedDictionary<string, string> options, Dictionary<string, string> variables, ref string cmdArgs,
+      IniFile.Entry rawValue, string unmappedKey, string operation, string value)
+    {
+      if (unmappedKey.StartsWith("@"))
+      {
+        var lowerKey = unmappedKey.ToLower();
+        if (lowerKey == "@import")
+          ProcessImport(targetConfigFolder, configSourceFolder, iniFile, destIniCache, options, variables, ref cmdArgs, value);
+        else if (lowerKey == "@copy" || lowerKey == "@copyfiles") // @copyfiles is legacy name
+          ProcessCopyFile(targetConfigFolder, configSourceFolder, value);
+        else if (lowerKey == "@cmdline")
+          ProcessCommandLineArg(ref cmdArgs, operation, value);
+        else if (lowerKey == "@steamsockets")
+          this.Steamsockets = (value ?? "").ToLower() == "true" || (value ?? "").ToLower() == "1";
+        else if (lowerKey == "@seekfreeloading")
+          this.Seekfreeloading = (value ?? "").ToLower() == "true" || (value ?? "").ToLower() == "1";
+        else if (lowerKey.Length >= 3 && lowerKey.EndsWith("@"))
+          ProcessVariableDefinition(variables, operation, lowerKey, value);
+        else if (lowerKey == "@servername" || lowerKey == "@keep")
+        {
+        }
+        else
+          Utils.WriteLine($"^EWARNING: ignoring unknown directive: {unmappedKey}={rawValue.Value}");
+      }
+      else
+      {
+        string mappedKey;
+        if (!simpleNames.TryGetValue(unmappedKey, out mappedKey))
+          mappedKey = unmappedKey;
+
+        var configMapping = mappedKey.Split('\\');
+        if (configMapping.Length == 3)
+          ProcessIniSetting(targetConfigFolder, destIniCache, operation, configMapping, value);
+        else
+          ProcessUrlParameter(options, operation, mappedKey, value);
+      }
+    }
     #endregion
 
     #region ProcessValueMacros()
@@ -1131,6 +1189,7 @@ namespace ToxikkServerLauncher
   #region class LoopInfo
   class LoopInfo
   {
+    public readonly bool IsLoop;
     public readonly string Template;
     public readonly List<List<string>> CombinationValues;
 
@@ -1146,6 +1205,7 @@ namespace ToxikkServerLauncher
 
     public LoopInfo(string loopTemplate, List<List<string>> combinationValues)
     {
+      IsLoop = true;
       Template = loopTemplate;
       CombinationValues = combinationValues;
     }
