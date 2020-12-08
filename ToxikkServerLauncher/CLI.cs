@@ -9,7 +9,7 @@ namespace ToxikkServerLauncher
 {
   class CLI
   {
-    private const string Version = "2.37";
+    private const string Version = "2.41";
     private const double WorkshopRedeployMinutes = 1.0;
 
     [Flags]
@@ -18,6 +18,7 @@ namespace ToxikkServerLauncher
     private Launcher launcher;
     private Workshop workshop;
     private bool interactive;
+    private bool updateWorkshop;
     private ServerAction action;
     private DateTime lastWorkshopDeployment = DateTime.MinValue;
     private readonly Timer reloadTimer = new Timer(1000);
@@ -78,12 +79,17 @@ namespace ToxikkServerLauncher
     {
       // auto-run some commands that are set in the config file
       var section = launcher.MainIni.GetSection("ServerLauncher");
-      if (section.GetBool("UpdateWorkshop"))
-        commands.Insert(0, "-uw");
-      if (section.GetBool("CleanWorkshop"))
-        commands.Insert(0, "-cw");
       if (section.GetBool("UpdateToxikk"))
-        commands.Insert(0, "-ut");
+        commands.Add("-ut");
+      if (section.GetBool("CleanWorkshop"))
+        commands.Add("-cw");
+      this.updateWorkshop = section.GetBool("UpdateWorkshop");
+      if (updateWorkshop)
+        commands.Add( "-uw");
+      if (section.GetBool("SyncWorkshop", updateWorkshop))
+        commands.Add("-sw");
+      if (section.GetBool("ShowCommand"))
+        commands.Add("showCommand=1");
     }
     #endregion
 
@@ -217,14 +223,13 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
     #region ProcessCommand()
     private void ProcessCommand(string cmdOrId)
     {
-      int id;
       var regexVar = new Regex(@"^(@[0-9A-Za-z_]+@)\s*(.?=)\s*(.*)$");
       Match match;
 
       if (cmdOrId.StartsWith("-"))
         cmdOrId = cmdOrId.Substring(1);
 
-      if (int.TryParse(cmdOrId, out id))
+      if (int.TryParse(cmdOrId, out var id))
         ExecuteAction(cmdOrId);
       else if (cmdOrId == "*")
         GlobAction();
@@ -292,11 +297,14 @@ The full documentation can be found on https://github.com/PredatH0r/ToxikkServer
       }
       if (action == ServerAction.Start)
       {
-        bool redeploy = workshop.UpdateWorkshop(false, true, true);
-        if (redeploy || (DateTime.Now - lastWorkshopDeployment).TotalMinutes >= WorkshopRedeployMinutes)
+        if (this.updateWorkshop)
         {
-          workshop.DeployWorkshopItems();
-          lastWorkshopDeployment = DateTime.Now;
+          bool redeploy = workshop.UpdateWorkshop(false, true, true);
+          if (redeploy || (DateTime.Now - lastWorkshopDeployment).TotalMinutes >= WorkshopRedeployMinutes)
+          {
+            workshop.DeployWorkshopItems();
+            lastWorkshopDeployment = DateTime.Now;
+          }
         }
         launcher.StartServer(cmdOrId);
       }

@@ -64,7 +64,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
-    <None Include="MyClientConfig.ini" />
+    <None Include="MyClientConfig.ini">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Include="MyServerConfig - Copy.ini" />
     <None Include="Server99\Config.ini">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>

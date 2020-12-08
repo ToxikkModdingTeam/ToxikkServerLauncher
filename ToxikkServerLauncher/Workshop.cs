@@ -68,7 +68,7 @@ namespace ToxikkServerLauncher
     {
       Utils.WriteLine("Updating TOXIKK...\n");
 
-      string cmd = " +app_update 324810";
+      string cmd = "@sSteamCmdForcePlatformType windows +app_update 324810";
 
       foreach (var sec in launcher.GetApplicableSections("SteamWorkshop", true))
       {
@@ -218,7 +218,7 @@ namespace ToxikkServerLauncher
         sb.Append(" +workshop_download_item 324810 ").Append(item.WorkshopId);
 
       Utils.WriteLine("Updating " + todo.Count + " Steam workshop items...\n");
-      var baseFolder = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(launcher.WorkshopFolder))) ?? "", "steamapps");
+      var baseFolder = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(launcher.WorkshopFolder))));
       RunSteamcmd(sb.ToString(), baseFolder);
     }
     #endregion
@@ -232,36 +232,39 @@ namespace ToxikkServerLauncher
         return;
       }
 
-      string user, pass;
-      if (!GetSteamLogin(out user, out pass))
+      if (!GetSteamLogin(out var user, out var pass))
       {
         Utils.WriteLine("^EWARNING:^7 User not configured in [SteamWorkshop], skipping updates.");
         return;
       }
 
       var sb = new StringBuilder();
-      sb.Append("+login ").Append(user).Append(pass != null ? " " + pass : "");
-      if (forceInstallDir != null)
+      sb.Append("+logout ").Append("+login ").Append(user).Append(pass != null ? " " + pass : "");
+      if (forceInstallDir != null && StringComparer.InvariantCultureIgnoreCase.Compare(forceInstallDir, Path.GetDirectoryName(launcher.SteamcmdExe)) != 0) // +force_install_dir must not be the same as its default value
         sb.Append(" +force_install_dir \"").Append(forceInstallDir).Append("\"");
       sb.Append(cmd);
       sb.Append(" +quit");
 
-      // when not providing a password on the command line, steamcmd may prompt for the password or use a cached password
-      // in case of a cached password, steamcmd randomly exists with error code 5 when getting license information, so we have some retry logic here
+      // When not providing a password on the command line, steamcmd may prompt for the password or use a cached password
+      // In case of a cached password, steamcmd randomly exists with error code 5 when getting license information, so we have some retry logic here.
+      // There's also other random steamcmd failures.
       var psi = new ProcessStartInfo(launcher.SteamcmdExe, sb.ToString());
       psi.UseShellExecute = false;
-      psi.RedirectStandardOutput = true;
+      psi.RedirectStandardOutput = launcher.SteamcmdPrettyPrint;
       int attempt = 1;
       bool retry;
       do
       {
+        //if (!launcher.SteamcmdPrettyPrint)
+        //  Utils.WriteLine("\nRunning ^A" + psi.FileName + " ^B" + psi.Arguments);
         retry = false;
         var proc = Process.Start(psi);
         if (proc == null)
           Utils.WriteLine("\n^CERROR:^7 Failed to start steamcmd.exe\n");
         else
         {
-          ProcessSteamcmdStdout(proc);
+          if (launcher.SteamcmdPrettyPrint)
+            ProcessSteamcmdStdout(proc);
           proc.WaitForExit();
 
           Utils.WriteLine(proc.ExitCode == 0 ? "\nSteam update complete.\n" : "\n^EWARNING:^7 Steam update completed with exit code " + proc.ExitCode.ToString("x8") + ".\n");

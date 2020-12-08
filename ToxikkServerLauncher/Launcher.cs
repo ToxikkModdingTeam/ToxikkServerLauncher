@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Reflection.Emit;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -17,8 +16,8 @@ namespace ToxikkServerLauncher
     public const string ClientSection = "Client";
 
     private static readonly Regex portRegex = new Regex(@"^@port,\s*(\d+),\s*(-?\d+)\s*$", RegexOptions.IgnoreCase);
-    private static readonly Regex skillClassRegex = new Regex(@"^@skillclass,\s*(\d+)\s*$", RegexOptions.IgnoreCase);
-    private static readonly Regex serverNumRegx = new Regex(@".*?\\" + ServerSectionPrefix + @"(\d+)");
+    private static readonly Regex skillClassRegex = new Regex(@"^@(?:sc|skillclass),\s*(\d+)\s*$", RegexOptions.IgnoreCase);
+    private static readonly Regex serverNumRegx = new Regex(@".*?[\\/]" + ServerSectionPrefix + @"(\d+)");
     private static readonly Regex varNameRegex = new Regex(@"@((?:[A-Za-z_][A-Za-z0-9_]+)|(?:\d+(?:\.\d+)?))@");
     private static readonly int[] SkillClassDifficulty = {0, 0, 1, 2, 3, 3, 4, 4, 5, 5, 5, 6, 7};
 
@@ -43,6 +42,7 @@ namespace ToxikkServerLauncher
     public bool ShowCommandLine { get; set; }
     public string MachineName { get; private set; } = Environment.MachineName.ToLower();
     public bool ServerProcessesRunning => runningServers.Count > 0;
+    public bool SteamcmdPrettyPrint { get; private set; }
 
     public Launcher()
     {
@@ -91,6 +91,8 @@ namespace ToxikkServerLauncher
           }
         }
       }
+      Utils.WriteLine("Using host config for ^B" + MachineName);
+
 
       // process launcher config (first found value wins)
       foreach (var sec in GetApplicableSections("ServerLauncher", true))
@@ -116,6 +118,8 @@ namespace ToxikkServerLauncher
           this.SteamcmdExe = exe;
       }
 
+      this.SteamcmdPrettyPrint = section.GetBool("SteamcmdPrettyPrint");
+
       var workshopDir = section.GetString("WorkshopDir");
       if (workshopDir != null && this.WorkshopFolder == null && Directory.Exists(workshopDir))
         this.WorkshopFolder = workshopDir;
@@ -123,11 +127,11 @@ namespace ToxikkServerLauncher
       var toxikkDir = section.GetString("ToxikkDir");
       if (!string.IsNullOrEmpty(toxikkDir) && this.ToxikkFolder == null)
       {
-        var path = Path.Combine(toxikkDir, @"Binaries\win32\TOXIKK.exe");
+        var path = Path.Combine(toxikkDir, "Binaries", "Win32", "TOXIKK.exe");
         if (File.Exists(path))
           this.ToxikkFolder = toxikkDir;
         else
-          Utils.WriteLine("^EWARNING:^7 ignoring bad ToxikkDir in MyServerConfig.ini");
+          Utils.WriteLine("^EWARNING:^7 ignoring bad ToxikkDir in MyServerConfig.ini: " + path);
       }
 
       if (this.HttpFolder == null)
@@ -149,7 +153,7 @@ namespace ToxikkServerLauncher
     #region ConvertLegacyServerConfigListIni()
     public void ConvertLegacyServerConfigListIni()
     {
-      var oldConfigFile = Path.Combine(ToxikkFolder, @"TOXIKKServers\TOXIKKServerLauncher\ServerConfigList.ini");
+      var oldConfigFile = Path.Combine(ToxikkFolder, @"TOXIKKServers", "TOXIKKServerLauncher", "ServerConfigList.ini");
       if (!File.Exists(oldConfigFile))
         return;
 
@@ -215,27 +219,27 @@ namespace ToxikkServerLauncher
 
       if (this.ToxikkFolder == null)
       {
-        if (File.Exists(Path.Combine(this.launcherFolder, @"..\Binaries\Win32\TOXIKK.exe")))
+        if (File.Exists(Path.Combine(this.launcherFolder, @"..", "Binaries", "Win32", "TOXIKK.exe")))
           this.ToxikkFolder = Path.Combine(this.launcherFolder, "..");
         else if (this.SteamcmdExe != null)
-          this.ToxikkFolder = Path.Combine(Path.GetDirectoryName(this.SteamcmdExe), @"steamapps\common\TOXIKK");
+          this.ToxikkFolder = Path.Combine(Path.GetDirectoryName(this.SteamcmdExe), "SteamApps", "common", "TOXIKK");
       }
       ToxikkFolder = ToxikkFolder?.TrimEnd('\\', '/');
-      ToxikkExe = ToxikkFolder == null ? null : Path.Combine(ToxikkFolder, @"Binaries\win32\TOXIKK.exe");
+      ToxikkExe = ToxikkFolder == null ? null : Path.Combine(ToxikkFolder, "Binaries", "Win32", "TOXIKK.exe");
       if (ToxikkExe == null || !File.Exists(ToxikkExe))
       {
         Utils.WriteLine("Couldn't find TOXIKK.exe. Please configure ToxikkDir in MyServerConfig.ini or copy+run the launcher from TOXIKK\\TOXIKKServers.");
         return false;
       }
 
-      ConfigFolder = Path.Combine(ToxikkFolder, @"UDKGame\Config");
+      ConfigFolder = Path.Combine(ToxikkFolder, "UDKGame", "Config");
 
       if (this.WorkshopFolder == null)
       {
         if (this.SteamcmdExe != null)
-          this.WorkshopFolder = Path.Combine(Path.GetDirectoryName(this.SteamcmdExe), @"steamapps\workshop\content\324810");
+          this.WorkshopFolder = Path.Combine(Path.GetDirectoryName(this.SteamcmdExe), "SteamApps", "workshop", "content", "324810");
         else if (this.ToxikkFolder != null)
-          this.WorkshopFolder = Path.Combine(this.ToxikkFolder, @"..\..\workshop\content\324810");
+          this.WorkshopFolder = Path.Combine(this.ToxikkFolder, "..", "..", "workshop", "content", "324810");
       }
 
       // ReSharper restore PossibleNullReferenceException
@@ -392,7 +396,8 @@ namespace ToxikkServerLauncher
       {
         if (section.Name.StartsWith(ServerSectionPrefix) && !section.Name.Contains(":"))
         {
-          var name = section.GetString("@ServerName") ?? UrlDecode(section.GetString("ServerName"));
+          var name = section.GetString("@ServerName") ?? section.GetString("ServerName");
+          name = UrlDecode(name ?? section.Name);
           name = ProcessValueMacros("", name, this.globalVariables);
           var id = section.Name.Substring(ServerSectionPrefix.Length);
           list.Add(new ServerInfo(id, name, this.runningServers.Contains(id)));
@@ -464,14 +469,13 @@ namespace ToxikkServerLauncher
 
       var name = section.GetString("@ServerName") ?? ProcessValueMacros("", section.GetString("ServerName"), globalVariables) ?? sectionName;
       Utils.WriteLine("\nStarting " + name);
-      string map, options, cmdArgs;
-      if (!GenerateConfig(MainIni, section, out map, out options, out cmdArgs))
+      if (!GenerateConfig(MainIni, section, out var map, out var options, out var cmdArgs, out var varDict))
         return false;
 
       if (serverId == "0")
         Process.Start("steam://rungameid/324810");
       else
-        LaunchServer(map, options, cmdArgs, sectionName);
+        LaunchServer(map, options, cmdArgs, sectionName, varDict);
       return true;
     }
 
@@ -481,20 +485,19 @@ namespace ToxikkServerLauncher
 
     public void GenerateConfig(int id)
     {
-      string map, opt, args;
       var sec = id == 0 ? ClientSection : ServerSectionPrefix + id;
       this.Server = id != 0;
-      GenerateConfig(this.MainIni, this.MainIni.GetSection(sec), out map, out opt, out args);
+      GenerateConfig(this.MainIni, this.MainIni.GetSection(sec), out _, out _, out _, out _);
     }
 
-    private bool GenerateConfig(IniFile iniFile, IniFile.Section section, out string map, out string options, out string cmdArgs)
+    private bool GenerateConfig(IniFile iniFile, IniFile.Section section, out string map, out string options, out string cmdArgs, out Dictionary<string,string> variableDict)
     {
       var targetConfigFolder = this.Server ? Path.Combine(ConfigFolder, section.Name) : this.ConfigFolder.TrimEnd('\\', '/');
       CopyIniFilesToServerConfigFolder(targetConfigFolder, section);
 
       var destIniCache = new Dictionary<string, IniFile>();
       var optionDict = new SortedDictionary<string,string>(StringComparer.InvariantCultureIgnoreCase);
-      var variableDict = new Dictionary<string, string>(globalVariables, StringComparer.InvariantCultureIgnoreCase);
+      variableDict = new Dictionary<string, string>(globalVariables, StringComparer.InvariantCultureIgnoreCase);
       variableDict["@ConfigDir@"] = targetConfigFolder;
 
       if (this.Lan)
@@ -573,7 +576,7 @@ namespace ToxikkServerLauncher
       if (this.Server)
       {
         // copy all *.ini files from Workshop/Config folder (but don't overwrite existing files)
-        var dir = Path.Combine(this.ToxikkFolder, @"UDKGame\Workshop\Config");
+        var dir = Path.Combine(this.ToxikkFolder, "UDKGame", "Workshop", "Config");
         if (Directory.Exists(dir))
         {
           foreach (var file in Directory.GetFiles(dir, "*.ini"))
@@ -710,13 +713,14 @@ namespace ToxikkServerLauncher
     private LoopInfo ProcessCrossProductLoop(string rawValue, string targetConfigFolder, Dictionary<string,string> variables)
     {
       // no @loop, return 1 static entry 
-      if (!rawValue.ToLower().StartsWith("@loop "))
+      if (!rawValue.ToLower().StartsWith("@loop"))
         return new LoopInfo(rawValue);
 
       rawValue = ProcessValueMacros(targetConfigFolder, rawValue, variables, false);
 
       int startOfTemplate;
-      var loops = ExtractLoopList(rawValue, out startOfTemplate);
+      string sep;
+      var loops = ExtractLoopList(rawValue, out startOfTemplate, out sep);
       if (loops.Count == 0)
       {
         Utils.WriteLine($"^CWARNING: bad @loop statement: {rawValue}");
@@ -727,7 +731,7 @@ namespace ToxikkServerLauncher
       List<string[]> loopVals = new List<string[]>(loops.Count);
       foreach (var loop in loops)
       {
-        var vals = SplitUnquoted(loop, ',');
+        var vals = SplitUnquoted(loop, sep[0]);
         loopVals.Add(vals);
         combinationCount *= vals.Length;
       }
@@ -749,13 +753,17 @@ namespace ToxikkServerLauncher
     /// <summary>
     /// Extract the text enclosed by {...} until we find a ':'
     /// </summary>
-    private List<string> ExtractLoopList(string rawValue, out int startOfTemplate)
+    private List<string> ExtractLoopList(string rawValue, out int startOfTemplate, out string sep)
     {
       List<string> loops = new List<string>();
       startOfTemplate = 0;
-      for (int i = 6, len = rawValue.Length; i < len;)
+      int i = rawValue.IndexOf('{');
+      sep = rawValue.Substring(5, i - 5).Trim();
+      if (sep == "")
+        sep = ",";
+      for (var len = rawValue.Length; i < len;)
       {
-        if (rawValue[i] == ':') // old syntax required a colon between the last {...} and the template
+        if (rawValue[i] == ':' && sep != ":") // old syntax required a colon between the last {...} and the template
         {
           startOfTemplate = i + 1;
           break;
@@ -845,7 +853,7 @@ namespace ToxikkServerLauncher
       {
         var varName = match.Groups[0].Value;
         string varValue;
-        if (!variables.TryGetValue(varName, out varValue))
+        if (!variables.TryGetValue(varName, out varValue) && !GetSettingValue(varName, out varValue))
           varValue = "";
 
         if (char.IsDigit(varName[1]))
@@ -865,7 +873,7 @@ namespace ToxikkServerLauncher
       if (port.Success && serv.Success)
         return (int.Parse(port.Groups[1].Value) + int.Parse(port.Groups[2].Value)*(int.Parse(serv.Groups[1].Value) - 1)).ToString();
 
-      // @SkillClass,skillclass-value
+      // @sc,skillclass-value
       match = skillClassRegex.Match(value);
       if (match.Success)
       {
@@ -874,11 +882,17 @@ namespace ToxikkServerLauncher
         return SkillClassDifficulty[sc].ToString();
       }
 
-      // @Env,environment-variable-name
+      // @env,environment-variable-name
       if (value.StartsWith("@env,", StringComparison.InvariantCultureIgnoreCase))
         return Environment.GetEnvironmentVariable(value.Substring(4).Trim()) ?? "";
-        
+      
       return value;
+    }
+
+    private bool GetSettingValue(string name, out string value)
+    {
+      value = "";
+      return false;
     }
 
     #endregion
@@ -1080,7 +1094,7 @@ namespace ToxikkServerLauncher
     #endregion
 
     #region LaunchServer()
-    private void LaunchServer(string map, string options, string cmdArgs, string sectionName)
+    private void LaunchServer(string map, string options, string cmdArgs, string sectionName, Dictionary<string, string> variables)
     {
       string args = "";
       if (Server)
@@ -1108,13 +1122,36 @@ namespace ToxikkServerLauncher
         Utils.WriteLine("INFO: starting " + ToxikkExe + " " + args);
 
       Environment.CurrentDirectory = Path.GetDirectoryName(ToxikkExe) ?? "";
-      var proc = Process.Start(ToxikkExe, args);
-      if (proc == null)
-        Utils.WriteLine("Couldn't start TOXIKK for " + sectionName);
-      else
+      try
       {
-        var pidFile = Path.Combine(ConfigFolder, sectionName, "toxikk.pid");
-        File.WriteAllText(pidFile, proc.Id.ToString());
+        string exe = ToxikkExe;
+        if (Environment.OSVersion.Platform == PlatformID.Unix)
+        {
+          exe = "wineconsole";
+          args = "\"" + ToxikkExe + "\" " + args;
+        }
+
+        // set environment variables for the server
+        var psi = new ProcessStartInfo(exe, args);
+        psi.UseShellExecute = false;
+        foreach (var entry in variables)
+        {
+          if (entry.Key.StartsWith("@env."))
+            psi.EnvironmentVariables[entry.Key.Substring(5).TrimEnd('@')]=entry.Value;
+        }
+       
+        var proc = Process.Start(psi);
+        if (proc == null)
+          Utils.WriteLine("Couldn't start TOXIKK for " + sectionName);
+        else
+        {
+          var pidFile = Path.Combine(ConfigFolder, sectionName, "toxikk.pid");
+          File.WriteAllText(pidFile, proc.Id.ToString());
+        }
+      }
+      catch (Exception ex)
+      {
+        Utils.WriteLine("^CERROR: failed to launch ^A" + ToxikkExe + "^7: \n" + ex.Message);
       }
     }
     #endregion

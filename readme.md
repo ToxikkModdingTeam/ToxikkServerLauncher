@@ -1,4 +1,4 @@
-ToxikkServerLaucher (2.36)
+ToxikkServerLaucher (2.41)
 ===
 
 This tool centralizes configurations for many server instances on multiple machines.
@@ -23,6 +23,7 @@ or sections from other files, even in subdirectories. When using subdirectories,
 - @CmdLine+=... adds startup parameters to the command line (-= can be used to remove default startup options).  
 - @ServerName=... sets the label for the server in the menu (to override the server's ServerName shown in the server browser)
 - @myVar@=... defines a variable "myVar" and assigns a value
+- @env.varname@=... sets an environment variable "varname=..." for the server process
 - @SteamSockets=true activates the use of Steam Sockets, which are supposed to help NAT traversal, but can cause issues on their own
 - @SeekfreeLoading=false removes the "-seekfreeloading" option from the command line, which is added by default
 
