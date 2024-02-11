@@ -9,10 +9,11 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>ToxikkServerLauncher</RootNamespace>
     <AssemblyName>ToxikkServerLauncher</AssemblyName>
-    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
-    <TargetFrameworkProfile>Client</TargetFrameworkProfile>
+    <TargetFrameworkProfile>
+    </TargetFrameworkProfile>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -67,7 +68,6 @@
     <None Include="MyClientConfig.ini">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Include="MyServerConfig - Copy.ini" />
     <None Include="Server99\Config.ini">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
@@ -80,19 +80,34 @@
     <None Include="MyServerConfig.ini" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="steam_bins_6246211\crashhandler.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="steam_bins_6246211\steamclient.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="steam_bins_6246211\tier0_s.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="steam_bins_6246211\vstdlib_s.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <Content Include="ToxikkLauncher.ico" />
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PostBuildEvent>copy $(ProjectDir)\..\readme.md $(TargetDir)
-copy $(TargetPath) c:\steamcmd\steamapps\common\TOXIKK\TOXIKKServers
-copy $(TargetDir)\*.dll c:\steamcmd\steamapps\common\TOXIKK\TOXIKKServers
-copy $(ProjectDir)\MyServerConfig.ini c:\steamcmd\steamapps\common\TOXIKK\TOXIKKServers
+    <PostBuildEvent>rem mkdir f:\games\steamcmd\steamapps\common\TOXIKK\ToxikkServers
+copy $(ProjectDir)\..\readme.md $(TargetDir)
+copy $(TargetPath) f:\games\steamcmd\steamapps\common\TOXIKK\TOXIKKServers\
+copy $(TargetDir)\*.dll f:\games\steamcmd\steamapps\common\TOXIKK\TOXIKKServers\
+copy $(ProjectDir)\MyServerConfig.ini f:\games\steamcmd\steamapps\common\TOXIKK\TOXIKKServers\
 
-copy $(TargetPath) d:\sources\ToxikkServerPack\ToxikkServerLauncher
-copy $(TargetDir)\*.dll d:\sources\ToxikkServerPack\ToxikkServerLauncher
-copy $(ProjectDir)\ServerConfig.ini d:\sources\ToxikkServerPack\ToxikkServerLauncher
-copy $(ProjectDir)\..\readme.md d:\sources\ToxikkServerPack\ToxikkServerLauncher</PostBuildEvent>
+rem mkdir c:\sources\toxikk\ToxikkServerPack
+copy $(TargetPath) c:\sources\toxikk\ToxikkServerPack\ToxikkServerLauncher
+copy $(TargetDir)\*.dll c:\sources\toxikk\ToxikkServerPack\ToxikkServerLauncher
+copy $(ProjectDir)\ServerConfig.ini c:\sources\toxikk\ToxikkServerPack\ToxikkServerLauncher
+copy $(ProjectDir)\..\readme.md c:\sources\toxikk\ToxikkServerPack\ToxikkServerLauncher</PostBuildEvent>
   </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.

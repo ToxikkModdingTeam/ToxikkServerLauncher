@@ -249,9 +249,20 @@ namespace ToxikkServerLauncher
         Directory.CreateDirectory(HttpFolder);
 
       // set some global variables which can be used inside @CopyFile statements
+      this.globalVariables["@LauncherDir@"] = this.launcherFolder;
       this.globalVariables["@ToxikkDir@"] = this.ToxikkFolder;
       this.globalVariables["@WorkshopDir@"] = this.WorkshopFolder;
       this.globalVariables["@HttpRedirectDir@"] = this.HttpFolder;
+
+      // process @Copy commands in [ServerLauncher]
+      foreach (var sec in GetApplicableSections("ServerLauncher", true))
+      {
+        foreach (var entry in sec.GetAll("@Copy"))
+        {
+          var value = ProcessValueMacros(ToxikkFolder, entry.Value, globalVariables, false);
+          ProcessCopyFile(ToxikkFolder, launcherFolder, value);
+        }
+      }
 
       return true;
     }
